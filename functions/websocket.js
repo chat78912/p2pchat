@@ -644,7 +644,8 @@ async function handleJoinRoom(webSocket, data, env, connectionMode = CONNECTION_
   try {
     await handler.cleanupExpiredUsers(roomId, env);
     
-    // 额外清理：移除没有活跃WebSocket连接的用户
+    // 额外清理：移除没有活跃WebSocket连接的用户（多次清理确保房间干净）
+    await cleanupInactiveConnections(roomId, env);
     await cleanupInactiveConnections(roomId, env);
     
     const roomKey = `room:${roomId}`;
@@ -856,17 +857,25 @@ async function handlePollMessages(webSocket, data, env, connectionMode = CONNECT
     const messagesKey = `messages:${userId}`;
     const messagesStr = await env['p2pchat-storage'].get(messagesKey);
     
+    console.log(`🔍 [${connectionMode.toUpperCase()}] Polling messages for ${userId}, found: ${messagesStr ? 'data' : 'none'}`);
+    
     if (messagesStr) {
       const messages = JSON.parse(messagesStr);
+      console.log(`📨 [${connectionMode.toUpperCase()}] Found ${messages.length} pending messages for ${userId}`);
+      
       if (messages.length > 0) {
-        console.log(`[${connectionMode.toUpperCase()}] Sending ${messages.length} pending messages to ${userId}`);
+        console.log(`📤 [${connectionMode.toUpperCase()}] Sending ${messages.length} pending messages to ${userId}`);
         
         for (const message of messages) {
+          console.log(`📧 Delivering message to ${userId}:`, message.type);
           safeWebSocketSend(webSocket, message);
         }
         
         await env['p2pchat-storage'].delete(messagesKey);
+        console.log(`🗑️ Cleared message queue for ${userId}`);
       }
+    } else {
+      console.log(`📭 No pending messages for ${userId}`);
     }
   } catch (error) {
     console.error('Error handling poll messages:', error);
@@ -1018,12 +1027,14 @@ async function cleanupInactiveConnections(roomId, env) {
       
       if (userDataStr) {
         const userData = JSON.parse(userDataStr);
-        // 如果用户在最近60秒内活跃，保留他们
-        if (now - userData.lastSeen < 60000) {
+        // 如果用户在最近30秒内活跃，保留他们（减少超时时间）
+        if (now - userData.lastSeen < 30000) {
           activeUsers.push(userId);
         } else {
           console.log(`🧹 Removing inactive user ${userId} from room ${roomId} (last seen: ${new Date(userData.lastSeen).toISOString()})`);
           delete roomData.connections[userId];
+          // 同时清理用户的消息队列
+          await env['p2pchat-storage'].delete(`messages:${userId}`);
         }
       } else {
         console.log(`🧹 Removing user ${userId} from room ${roomId} (no user data)`);
