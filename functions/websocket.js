@@ -644,6 +644,9 @@ async function handleJoinRoom(webSocket, data, env, connectionMode = CONNECTION_
   try {
     await handler.cleanupExpiredUsers(roomId, env);
     
+    // 额外清理：移除没有活跃WebSocket连接的用户
+    await cleanupInactiveConnections(roomId, env);
+    
     const roomKey = `room:${roomId}`;
     const roomDataStr = await env['p2pchat-storage'].get(roomKey);
     let roomData = roomDataStr ? JSON.parse(roomDataStr) : { 
@@ -769,6 +772,10 @@ async function handleRTCMessage(webSocket, data, env, connectionMode = CONNECTIO
   console.log(`[${connectionMode.toUpperCase()}] Forwarding ${type} signal from ${data.userId} to ${targetUserId}`);
   
   try {
+    // 打印当前活跃连接状态
+    console.log(`🔍 Active connections: ${Array.from(activeConnections.keys()).join(', ')}`);
+    console.log(`🎯 Looking for target user: ${targetUserId}`);
+    
     // 优先尝试直接发送给活跃的WebSocket连接
     const targetWebSocket = activeConnections.get(targetUserId);
     if (targetWebSocket && targetWebSocket.readyState === 1) {
@@ -776,6 +783,10 @@ async function handleRTCMessage(webSocket, data, env, connectionMode = CONNECTIO
       safeWebSocketSend(targetWebSocket, data);
       console.log(`🚀 RTC ${type} message sent directly to ${targetUserId} via WebSocket (${connectionMode} mode)`);
       return;
+    } else if (targetWebSocket) {
+      console.log(`⚠️ Target WebSocket for ${targetUserId} exists but state is ${targetWebSocket.readyState}`);
+    } else {
+      console.log(`❌ No active WebSocket connection found for ${targetUserId}`);
     }
     
     // 如果没有活跃连接，检查用户是否存在并排队消息
@@ -997,6 +1008,45 @@ async function addPendingMessage(env, userId, message, connectionMode = CONNECTI
     });
   } catch (error) {
     console.error('Error adding pending message:', error);
+  }
+}
+
+async function cleanupInactiveConnections(roomId, env) {
+  try {
+    const roomKey = `room:${roomId}`;
+    const roomDataStr = await env['p2pchat-storage'].get(roomKey);
+    
+    if (!roomDataStr) return;
+    
+    const roomData = JSON.parse(roomDataStr);
+    const activeUserIds = Array.from(activeConnections.keys());
+    const originalUserCount = roomData.users.length;
+    
+    // 只保留有活跃WebSocket连接的用户
+    roomData.users = roomData.users.filter(userId => {
+      const hasActiveConnection = activeUserIds.includes(userId);
+      if (!hasActiveConnection) {
+        console.log(`🧹 Removing inactive user ${userId} from room ${roomId}`);
+        delete roomData.connections[userId];
+      }
+      return hasActiveConnection;
+    });
+    
+    if (roomData.users.length !== originalUserCount) {
+      console.log(`🧹 Cleaned up room ${roomId}: ${originalUserCount} -> ${roomData.users.length} users`);
+      
+      if (roomData.users.length > 0) {
+        await env['p2pchat-storage'].put(roomKey, JSON.stringify({
+          ...roomData,
+          lastUpdated: Date.now()
+        }), { expirationTtl: 3600 });
+      } else {
+        await env['p2pchat-storage'].delete(roomKey);
+        console.log(`🗑️ Deleted empty room ${roomId}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error cleaning up inactive connections:', error);
   }
 }
 
