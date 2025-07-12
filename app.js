@@ -1141,7 +1141,10 @@ class P2PChat {
         return new Promise((resolve) => {
             const ips = new Set();
             const pc = new RTCPeerConnection({
-                iceServers: []
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
             });
             
             pc.createDataChannel('');
@@ -1151,15 +1154,24 @@ class P2PChat {
                     const candidate = event.candidate.candidate;
                     console.log('检测到ICE候选:', candidate);
                     
-                    // 解析候选地址
-                    const ipMatch = candidate.match(/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/);
-                    if (ipMatch) {
-                        const ip = ipMatch[1];
+                    // 解析所有IP地址（包括host和srflx类型）
+                    const matches = candidate.matchAll(/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/g);
+                    for (const match of matches) {
+                        const ip = match[1];
                         
                         // 过滤出私有IP地址
                         if (this.isPrivateIP(ip)) {
                             console.log('发现私有IP:', ip);
                             ips.add(ip);
+                        }
+                    }
+                    
+                    // 特殊处理：从srflx候选中提取raddr（真实地址）
+                    if (candidate.includes('typ srflx')) {
+                        const raddrMatch = candidate.match(/raddr\s+([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/);
+                        if (raddrMatch && this.isPrivateIP(raddrMatch[1])) {
+                            console.log('从srflx发现私有IP (raddr):', raddrMatch[1]);
+                            ips.add(raddrMatch[1]);
                         }
                     }
                 } else {
@@ -1173,7 +1185,7 @@ class P2PChat {
                         resolve(selectedIP);
                     } else {
                         console.log('未检测到私有IP，使用回退方案');
-                        resolve(this.getFallbackIP());
+                        this.getFallbackIP().then(resolve);
                     }
                 }
             };
@@ -1183,7 +1195,7 @@ class P2PChat {
                 .catch(err => {
                     console.error('WebRTC检测失败:', err);
                     pc.close();
-                    resolve(this.getFallbackIP());
+                    this.getFallbackIP().then(resolve);
                 });
             
             // 超时保护
@@ -1196,7 +1208,7 @@ class P2PChat {
                         resolve(selectedIP);
                     } else {
                         console.log('检测超时，使用回退方案');
-                        resolve(this.getFallbackIP());
+                        this.getFallbackIP().then(resolve);
                     }
                 }
             }, 3000);
@@ -1244,10 +1256,23 @@ class P2PChat {
     }
     
     // 回退方案：基于网络探测
-    getFallbackIP() {
-        // 可以基于之前的网络探测结果推断
+    async getFallbackIP() {
         console.log('使用回退IP检测方案');
-        return '192.168.1.100'; // 临时回退
+        
+        // 尝试使用原有的检测方法作为回退
+        try {
+            // 先尝试从现有的WebRTC检测方法获取
+            const fastResult = await this.detectIPViaFastWebRTC();
+            if (fastResult) {
+                console.log('回退方案检测到IP:', fastResult);
+                return fastResult;
+            }
+        } catch (e) {
+            console.log('回退检测失败:', e.message);
+        }
+        
+        // 最终回退：询问用户
+        return await this.showIPInputDialog();
     }
     
     // 从公网IP推断可能的私有IP（仅作为最后的回退）
