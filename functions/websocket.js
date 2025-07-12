@@ -752,7 +752,7 @@ async function handleRTCMessage(webSocket, data, env, connectionMode = CONNECTIO
     return;
   }
   
-  console.log(`[${connectionMode.toUpperCase()}] Forwarding ${type} signal to ${targetUserId}`);
+  console.log(`[${connectionMode.toUpperCase()}] Forwarding ${type} signal from ${data.userId} to ${targetUserId}`);
   
   try {
     const userKey = `user:${targetUserId}`;
@@ -765,22 +765,23 @@ async function handleRTCMessage(webSocket, data, env, connectionMode = CONNECTIO
       
       if (now - userData.lastSeen < config.userTimeout) {
         await addPendingMessage(env, targetUserId, data, connectionMode);
-        console.log(`RTC message queued for ${targetUserId} (${connectionMode} mode)`);
+        console.log(`✅ RTC ${type} message queued for ${targetUserId} (${connectionMode} mode)`);
       } else {
-        console.log(`Target user ${targetUserId} is inactive (${connectionMode} mode), not sending message`);
+        console.log(`❌ Target user ${targetUserId} is inactive (${connectionMode} mode), not sending message`);
         safeWebSocketSend(webSocket, {
           type: 'error',
           message: 'Target user is offline'
         });
       }
     } else {
+      console.log(`❌ Target user ${targetUserId} not found in storage`);
       safeWebSocketSend(webSocket, {
         type: 'error',
         message: 'Target user not found'
       });
     }
   } catch (error) {
-    console.error('Error in handleRTCMessage:', error);
+    console.error('❌ Error in handleRTCMessage:', error);
   }
 }
 

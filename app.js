@@ -1792,6 +1792,9 @@ class P2PChat {
                 break;
             case 'heartbeat_ack':
                 break;
+            case 'rtc_ack':
+                console.log(`📨 Received RTC ACK from ${data.userId} for ${data.originalType}`);
+                break;
             case 'room_info':
                 // 新增：处理房间信息响应
                 this.handleRoomInfo(data);
@@ -2083,6 +2086,21 @@ class P2PChat {
                         roomId: this.currentRoom,
                         userId: this.userId
                     }));
+                    
+                    // 设置 answer 超时检查
+                    setTimeout(() => {
+                        if (peerConnection.connectionState === 'new' && peerConnection.iceConnectionState === 'new') {
+                            console.log(`⏰ No answer received from ${userId} within 10 seconds, retrying...`);
+                            // 重新发送 offer
+                            this.ws.send(JSON.stringify({
+                                type: 'offer',
+                                offer: offer,
+                                targetUserId: userId,
+                                roomId: this.currentRoom,
+                                userId: this.userId
+                            }));
+                        }
+                    }, 10000);
                 }
             } catch (error) {
                 console.error(`Error creating offer for ${userId}:`, error);
@@ -2156,6 +2174,19 @@ class P2PChat {
 
     async handleRTCMessage(data) {
         console.log(`📥 Received RTC message from ${data.userId}:`, data.type);
+        
+        // 立即发送接收确认
+        if (this.isConnected) {
+            this.ws.send(JSON.stringify({
+                type: 'rtc_ack',
+                originalType: data.type,
+                targetUserId: data.userId,
+                userId: this.userId,
+                roomId: this.currentRoom
+            }));
+            console.log(`📤 Sent RTC ACK for ${data.type} to ${data.userId}`);
+        }
+        
         let peer = this.peers.get(data.userId);
         
         if (!peer) {
