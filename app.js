@@ -546,11 +546,30 @@ class P2PChat {
             console.warn('简单WebRTC检测失败:', error.message);
         }
         
+        try {
+            // 方法4：使用getStats API检测
+            console.log('尝试使用getStats API检测...');
+            const statsIP = await this.detectIPViaStats();
+            if (statsIP) {
+                console.log('getStats检测成功:', statsIP);
+                return statsIP;
+            }
+        } catch (error) {
+            console.warn('getStats检测失败:', error.message);
+        }
+        
         // 如果所有方法都失败，提示用户手动设置
         console.log('自动检测失败，请手动设置IP');
         console.log('提示: 可以在控制台运行以下命令设置你的真实IP:');
         console.log('localStorage.setItem("p2pchat_fixed_ip", "你的真实IP");');
         console.log('例如: localStorage.setItem("p2pchat_fixed_ip", "192.168.1.100");');
+        
+        // 检查是否是因为浏览器隐私保护
+        console.warn('⚠️ 浏览器可能启用了WebRTC隐私保护（mDNS），隐藏了真实IP地址');
+        console.warn('解决方案：');
+        console.warn('1. Chrome: 访问 chrome://flags/#enable-webrtc-hide-local-ips-with-mdns 并禁用');
+        console.warn('2. Firefox: 访问 about:config 搜索 media.peerconnection.ice.obfuscate_host_addresses 设为 false');
+        console.warn('3. 或者手动设置IP: localStorage.setItem("p2pchat_fixed_ip", "你的IP")');
         
         // 返回null让调用者处理
         return null;
@@ -748,6 +767,88 @@ class P2PChat {
             pc.createOffer()
                 .then(offer => pc.setLocalDescription(offer))
                 .catch(reject);
+        });
+    }
+
+    // 使用 getStats API 检测本地 IP
+    async detectIPViaStats() {
+        return new Promise(async (resolve, reject) => {
+            let pc1, pc2;
+            
+            const timeout = setTimeout(() => {
+                if (pc1) pc1.close();
+                if (pc2) pc2.close();
+                reject(new Error('getStats检测超时'));
+            }, 10000);
+            
+            try {
+                // 创建两个本地 peer connections
+                pc1 = new RTCPeerConnection({ iceServers: [] });
+                pc2 = new RTCPeerConnection({ iceServers: [] });
+                
+                // 创建数据通道
+                const dc = pc1.createDataChannel('test');
+                
+                // 等待连接建立
+                pc1.oniceconnectionstatechange = async () => {
+                    if (pc1.iceConnectionState === 'connected') {
+                        // 获取统计信息
+                        const stats = await pc1.getStats();
+                        let localIP = null;
+                        
+                        stats.forEach(report => {
+                            if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                                // 查找本地候选
+                                stats.forEach(candidateReport => {
+                                    if (candidateReport.type === 'local-candidate' && 
+                                        candidateReport.id === report.localCandidateId) {
+                                        const ip = candidateReport.address || candidateReport.ip;
+                                        if (ip && this.isPrivateIP(ip)) {
+                                            localIP = ip;
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                        
+                        clearTimeout(timeout);
+                        pc1.close();
+                        pc2.close();
+                        
+                        if (localIP) {
+                            resolve(localIP);
+                        } else {
+                            reject(new Error('无法从stats中获取IP'));
+                        }
+                    }
+                };
+                
+                // 创建并交换 offer/answer
+                const offer = await pc1.createOffer();
+                await pc1.setLocalDescription(offer);
+                await pc2.setRemoteDescription(offer);
+                
+                const answer = await pc2.createAnswer();
+                await pc2.setLocalDescription(answer);
+                await pc1.setRemoteDescription(answer);
+                
+                // 交换 ICE 候选
+                pc1.onicecandidate = e => {
+                    if (e.candidate) {
+                        pc2.addIceCandidate(e.candidate);
+                    }
+                };
+                
+                pc2.onicecandidate = e => {
+                    if (e.candidate) {
+                        pc1.addIceCandidate(e.candidate);
+                    }
+                };
+                
+            } catch (error) {
+                clearTimeout(timeout);
+                reject(error);
+            }
         });
     }
 
@@ -1019,6 +1120,12 @@ class P2PChat {
                                 return;
                             }
                         }
+                    }
+                    
+                    // 处理 mDNS (.local) 地址的情况
+                    if (candidate.includes('.local') && !candidate.includes('0.0.0.0')) {
+                        console.log('检测到mDNS地址，浏览器隐私保护已启用');
+                        // 继续等待其他候选
                     }
                 }
             };
