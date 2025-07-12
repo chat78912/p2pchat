@@ -1999,12 +1999,22 @@ class P2PChat {
                 }
                 this.updateConnectionStatus('p2p', 'P2P连接');
             } else if (peerConnection.connectionState === 'failed') {
+                console.error(`P2P connection failed with ${userId}`);
                 if (this.connectionMode === 'lan') {
                     this.updateAutoStatus(`⚠️ 与用户连接失败，请检查网络设置`, 'warning');
                 } else {
                     this.addSystemMessage(`与用户 ${userId} 的连接失败`);
                 }
+            } else if (peerConnection.connectionState === 'disconnected') {
+                console.log(`P2P connection disconnected with ${userId}`);
             }
+            
+            // 添加更详细的状态日志
+            console.log(`Connection state details for ${userId}:`, {
+                connectionState: peerConnection.connectionState,
+                iceConnectionState: peerConnection.iceConnectionState,
+                iceGatheringState: peerConnection.iceGatheringState
+            });
         };
 
         let dataChannel;
@@ -2021,10 +2031,20 @@ class P2PChat {
             };
         }
 
+        // 添加 ICE 连接状态监控
+        peerConnection.oniceconnectionstatechange = () => {
+            console.log(`ICE connection state with ${userId}: ${peerConnection.iceConnectionState}`);
+            if (peerConnection.iceConnectionState === 'failed') {
+                console.error(`ICE connection failed with ${userId}, attempting restart`);
+                // 尝试重启ICE
+                peerConnection.restartIce();
+            }
+        };
+
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
                 const candidateType = event.candidate.type || 'unknown';
-                console.log(`Sending ICE candidate to ${userId}: ${candidateType}`);
+                console.log(`Sending ICE candidate to ${userId}: ${candidateType}`, event.candidate.candidate);
                 if (this.isConnected) {
                     this.ws.send(JSON.stringify({
                         type: 'ice-candidate',
@@ -2034,6 +2054,8 @@ class P2PChat {
                         userId: this.userId
                     }));
                 }
+            } else {
+                console.log(`ICE candidate gathering completed for ${userId}`);
             }
         };
 
@@ -2075,8 +2097,10 @@ class P2PChat {
         if (peer) {
             peer.dataChannel = dataChannel;
             
+            console.log(`Setting up data channel with ${userId}, current state: ${dataChannel.readyState}`);
+            
             dataChannel.onopen = () => {
-                console.log(`Data channel opened with ${userId}`);
+                console.log(`✅ Data channel opened with ${userId}, ready state: ${dataChannel.readyState}`);
                 this.updateConnectionStatus('p2p', 'P2P连接');
                 if (this.connectionMode === 'lan') {
                     this.updateAutoStatus(`🎉 已建立P2P直连，延迟极低！`);
@@ -2086,13 +2110,13 @@ class P2PChat {
             };
             
             dataChannel.onmessage = (event) => {
-                console.log(`Received P2P message from ${userId}:`, event.data);
+                console.log(`📨 Received P2P message from ${userId}:`, event.data);
                 const message = JSON.parse(event.data);
                 this.addMessage(message.content, false, message.timestamp);
             };
             
             dataChannel.onclose = () => {
-                console.log(`Data channel closed with ${userId}`);
+                console.log(`❌ Data channel closed with ${userId}`);
                 if (this.connectionMode === 'lan') {
                     this.updateAutoStatus(`📱 用户断开连接`);
                 } else {
@@ -2101,8 +2125,29 @@ class P2PChat {
             };
             
             dataChannel.onerror = (error) => {
-                console.error(`Data channel error with ${userId}:`, error);
+                console.error(`💥 Data channel error with ${userId}:`, error);
             };
+            
+            // 添加状态变化监控
+            const checkDataChannelState = () => {
+                console.log(`Data channel state for ${userId}: ${dataChannel.readyState}`);
+                if (dataChannel.readyState === 'open') {
+                    console.log(`🎯 Data channel with ${userId} is now open and ready!`);
+                } else if (dataChannel.readyState === 'closed') {
+                    console.log(`🔒 Data channel with ${userId} is closed`);
+                }
+            };
+            
+            // 定期检查数据通道状态
+            const stateChecker = setInterval(() => {
+                if (dataChannel.readyState === 'open' || dataChannel.readyState === 'closed') {
+                    clearInterval(stateChecker);
+                }
+                checkDataChannelState();
+            }, 1000);
+            
+            // 初始状态检查
+            checkDataChannelState();
         }
     }
 
@@ -2202,19 +2247,34 @@ class P2PChat {
         let p2pSent = false;
         let p2pConnections = 0;
         
+        console.log(`Attempting to send message to ${this.peers.size} peers`);
+        
         this.peers.forEach((peer, userId) => {
+            console.log(`Checking peer ${userId}:`, {
+                hasDataChannel: !!peer.dataChannel,
+                dataChannelState: peer.dataChannel ? peer.dataChannel.readyState : 'no channel',
+                peerConnectionState: peer.peerConnection.connectionState,
+                iceConnectionState: peer.peerConnection.iceConnectionState
+            });
+            
             if (peer.dataChannel && peer.dataChannel.readyState === 'open') {
-                console.log(`Sending P2P message to ${userId}`);
-                peer.dataChannel.send(JSON.stringify(message));
-                p2pSent = true;
-                p2pConnections++;
+                console.log(`✅ Sending P2P message to ${userId}`);
+                try {
+                    peer.dataChannel.send(JSON.stringify(message));
+                    p2pSent = true;
+                    p2pConnections++;
+                } catch (error) {
+                    console.error(`Failed to send P2P message to ${userId}:`, error);
+                }
+            } else {
+                console.log(`❌ Cannot send P2P to ${userId}: channel not ready`);
             }
         });
 
-        console.log(`Message sent via P2P to ${p2pConnections} users`);
+        console.log(`📊 Message sent via P2P to ${p2pConnections} users out of ${this.peers.size} total peers`);
 
         if (!p2pSent && this.isConnected) {
-            console.log('No P2P connections available, sending via WebSocket');
+            console.log('🔄 No P2P connections available, sending via WebSocket fallback');
             this.ws.send(JSON.stringify({
                 type: 'message',
                 content: content,
