@@ -494,6 +494,17 @@ class P2PChat {
     async detectLocalIP() {
         console.log('开始检测本地IP地址...');
         
+        // 方法-1：尝试用户手动输入或浏览器API（如果可用）
+        try {
+            const browserResult = await this.detectIPViaBrowserAPI();
+            if (browserResult) {
+                console.log('浏览器API检测到IP:', browserResult);
+                return browserResult;
+            }
+        } catch (error) {
+            console.warn('浏览器API检测失败:', error.message);
+        }
+        
         // 方法0：先尝试更宽松的本地候选检测
         try {
             const permissiveResult = await this.detectIPViaPermissiveLocal();
@@ -538,9 +549,203 @@ class P2PChat {
             console.warn('备用STUN检测失败:', error.message);
         }
         
-        // 方法4：如果所有检测都失败，使用智能推断
-        console.log('所有检测方法失败，使用智能推断...');
-        return await this.getIntelligentFallbackIP();
+        // 方法4：如果所有检测都失败，询问用户或使用智能推断
+        console.log('所有自动检测方法失败，尝试用户交互...');
+        return await this.handleDetectionFailure();
+    }
+    
+    // 新增：浏览器API检测（实验性）
+    async detectIPViaBrowserAPI() {
+        return new Promise((resolve, reject) => {
+            // 检查是否支持网络信息API
+            if ('connection' in navigator) {
+                console.log('网络连接信息:', navigator.connection);
+            }
+            
+            // 尝试通过fetch到本地端口来获取IP
+            const testLocalIPs = [
+                '192.168.10.1',   // 你的网关可能的IP
+                '192.168.1.1',    // 常见网关
+                '192.168.0.1',    // 常见网关
+                '10.0.0.1'        // 企业网关
+            ];
+            
+            let testCount = 0;
+            const timeout = setTimeout(() => {
+                reject(new Error('浏览器API检测超时'));
+            }, 3000);
+            
+            testLocalIPs.forEach(async (gatewayIP) => {
+                try {
+                    // 尝试连接到本地网关（这会失败，但可能暴露本地IP）
+                    const response = await fetch(`http://${gatewayIP}:81/test`, { 
+                        mode: 'no-cors',
+                        signal: AbortSignal.timeout(1000)
+                    }).catch(() => null);
+                    
+                    testCount++;
+                    if (testCount >= testLocalIPs.length) {
+                        reject(new Error('无法通过浏览器API检测IP'));
+                    }
+                } catch (error) {
+                    testCount++;
+                    if (testCount >= testLocalIPs.length) {
+                        reject(new Error('无法通过浏览器API检测IP'));
+                    }
+                }
+            });
+        });
+    }
+    
+    // 新增：处理检测失败，提供用户交互选项
+    async handleDetectionFailure() {
+        console.log('所有自动检测方法都失败，提供手动选项...');
+        
+        // 显示IP检测失败的提示
+        this.updateAutoStatus('🤔 无法自动检测IP，需要你的帮助', 'warning');
+        
+        // 添加用户交互提示
+        this.addSystemMessage('🔧 自动IP检测失败，这可能是因为：');
+        this.addSystemMessage('1. 你的网络使用了特殊配置');
+        this.addSystemMessage('2. 浏览器安全策略限制了IP检测');
+        this.addSystemMessage('3. 路由器阻止了WebRTC IP暴露');
+        
+        // 提供手动输入选项
+        return await this.showIPInputDialog();
+    }
+    
+    // 新增：显示IP输入对话框
+    async showIPInputDialog() {
+        return new Promise((resolve) => {
+            // 创建IP输入界面
+            const inputContainer = document.createElement('div');
+            inputContainer.className = 'ip-input-container';
+            inputContainer.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                z-index: 1000;
+                max-width: 400px;
+                width: 90%;
+            `;
+            
+            inputContainer.innerHTML = `
+                <h3 style="margin-top: 0; color: #333;">🔧 手动设置本地IP</h3>
+                <p style="color: #666; margin: 10px 0;">请输入你的本地IP地址（如 192.168.10.108）:</p>
+                <input type="text" id="manualIPInput" placeholder="192.168.10.108" 
+                       style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin: 10px 0;" />
+                <div style="margin: 10px 0;">
+                    <strong>常见配置:</strong><br>
+                    <button class="quick-ip" data-ip="192.168.10.100">192.168.10.100</button>
+                    <button class="quick-ip" data-ip="192.168.1.100">192.168.1.100</button>
+                    <button class="quick-ip" data-ip="192.168.0.100">192.168.0.100</button>
+                </div>
+                <div style="text-align: right; margin-top: 15px;">
+                    <button id="detectIPBtn" style="background: #007bff; color: white; border: none; padding: 8px 16px; margin-right: 10px; border-radius: 4px;">🔍 自动检测</button>
+                    <button id="confirmIPBtn" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 4px;">✅ 确认</button>
+                </div>
+                <div style="margin-top: 10px; font-size: 12px; color: #888;">
+                    💡 提示: 在命令行运行 'ipconfig' 查看你的真实IP地址
+                </div>
+            `;
+            
+            // 添加样式
+            const style = document.createElement('style');
+            style.textContent = `
+                .quick-ip {
+                    background: #f8f9fa;
+                    border: 1px solid #ddd;
+                    padding: 4px 8px;
+                    margin: 2px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                }
+                .quick-ip:hover {
+                    background: #e9ecef;
+                }
+            `;
+            document.head.appendChild(style);
+            
+            // 添加背景遮罩
+            const overlay = document.createElement('div');
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.5);
+                z-index: 999;
+            `;
+            
+            document.body.appendChild(overlay);
+            document.body.appendChild(inputContainer);
+            
+            const input = document.getElementById('manualIPInput');
+            const confirmBtn = document.getElementById('confirmIPBtn');
+            const detectBtn = document.getElementById('detectIPBtn');
+            
+            // 快速选择按钮
+            document.querySelectorAll('.quick-ip').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    input.value = btn.dataset.ip;
+                });
+            });
+            
+            // 自动检测按钮
+            detectBtn.addEventListener('click', async () => {
+                detectBtn.textContent = '🔍 检测中...';
+                detectBtn.disabled = true;
+                
+                try {
+                    // 尝试一次更深度的检测
+                    const result = await this.detectRealLocalIP();
+                    if (result) {
+                        input.value = result;
+                        this.addSystemMessage(`🎉 检测成功！找到IP: ${result}`);
+                    } else {
+                        this.addSystemMessage('❌ 自动检测仍然失败');
+                    }
+                } catch (error) {
+                    this.addSystemMessage(`❌ 检测失败: ${error.message}`);
+                }
+                
+                detectBtn.textContent = '🔍 自动检测';
+                detectBtn.disabled = false;
+            });
+            
+            // 确认按钮
+            confirmBtn.addEventListener('click', () => {
+                const ip = input.value.trim();
+                if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+                    // 清理界面
+                    document.body.removeChild(overlay);
+                    document.body.removeChild(inputContainer);
+                    document.head.removeChild(style);
+                    
+                    console.log('用户手动输入IP:', ip);
+                    resolve(ip);
+                } else {
+                    alert('请输入有效的IP地址格式 (如 192.168.10.108)');
+                }
+            });
+            
+            // 回车键确认
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    confirmBtn.click();
+                }
+            });
+            
+            // 聚焦输入框
+            input.focus();
+        });
     }
     
     // 新增：更宽松的本地IP检测（接受所有192.168.x.x）
