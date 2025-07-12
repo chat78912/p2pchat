@@ -2019,13 +2019,16 @@ class P2PChat {
 
         let dataChannel;
         if (isInitiator) {
+            console.log(`📡 Creating data channel as initiator for ${userId}`);
             dataChannel = peerConnection.createDataChannel('chat', {
                 ordered: true
             });
             this.setupDataChannel(dataChannel, userId);
+            console.log(`✅ Data channel created for ${userId}, state: ${dataChannel.readyState}`);
         } else {
+            console.log(`📡 Waiting for data channel from ${userId}`);
             peerConnection.ondatachannel = (event) => {
-                console.log(`Received data channel from ${userId}`);
+                console.log(`📨 Received data channel from ${userId}`);
                 dataChannel = event.channel;
                 this.setupDataChannel(dataChannel, userId);
             };
@@ -2061,7 +2064,7 @@ class P2PChat {
 
         this.peers.set(userId, { 
             peerConnection, 
-            dataChannel: null, 
+            dataChannel: isInitiator ? dataChannel : null, 
             pendingCandidates: pendingCandidates 
         });
 
@@ -2152,16 +2155,17 @@ class P2PChat {
     }
 
     async handleRTCMessage(data) {
-        console.log(`Received RTC message from ${data.userId}:`, data.type);
+        console.log(`📥 Received RTC message from ${data.userId}:`, data.type);
         let peer = this.peers.get(data.userId);
         
         if (!peer) {
-            console.log(`No peer found for user ${data.userId}, creating new peer connection`);
+            console.log(`🔄 No peer found for user ${data.userId}, creating new peer connection`);
             if (data.type === 'offer') {
                 await this.createPeerConnection(data.userId, false);
                 peer = this.peers.get(data.userId);
+                console.log(`✅ Created new peer connection for ${data.userId}`);
             } else {
-                console.error(`Received ${data.type} but no peer connection exists for ${data.userId}`);
+                console.error(`❌ Received ${data.type} but no peer connection exists for ${data.userId}`);
                 return;
             }
         }
@@ -2169,15 +2173,22 @@ class P2PChat {
         try {
             switch (data.type) {
                 case 'offer':
-                    console.log(`Processing offer from ${data.userId}`);
+                    console.log(`🎯 Processing offer from ${data.userId}`);
+                    console.log(`Offer SDP:`, data.offer);
+                    
                     await peer.peerConnection.setRemoteDescription(data.offer);
+                    console.log(`✅ Remote description set for ${data.userId}`);
                     
                     await this.processPendingCandidates(peer);
+                    console.log(`✅ Processed pending candidates for ${data.userId}`);
                     
                     const answer = await peer.peerConnection.createAnswer();
-                    await peer.peerConnection.setLocalDescription(answer);
+                    console.log(`✅ Created answer for ${data.userId}:`, answer);
                     
-                    console.log(`Sending answer to ${data.userId}`);
+                    await peer.peerConnection.setLocalDescription(answer);
+                    console.log(`✅ Local description set for ${data.userId}`);
+                    
+                    console.log(`📤 Sending answer to ${data.userId}`);
                     if (this.isConnected) {
                         this.ws.send(JSON.stringify({
                             type: 'answer',
@@ -2186,14 +2197,21 @@ class P2PChat {
                             roomId: this.currentRoom,
                             userId: this.userId
                         }));
+                        console.log(`✅ Answer sent to ${data.userId}`);
+                    } else {
+                        console.error(`❌ Cannot send answer: WebSocket not connected`);
                     }
                     break;
                     
                 case 'answer':
-                    console.log(`Processing answer from ${data.userId}`);
+                    console.log(`🎯 Processing answer from ${data.userId}`);
+                    console.log(`Answer SDP:`, data.answer);
+                    
                     await peer.peerConnection.setRemoteDescription(data.answer);
+                    console.log(`✅ Remote description (answer) set for ${data.userId}`);
                     
                     await this.processPendingCandidates(peer);
+                    console.log(`✅ Processed pending candidates after answer for ${data.userId}`);
                     break;
                     
                 case 'ice-candidate':
