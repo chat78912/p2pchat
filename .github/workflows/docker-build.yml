@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_IMAGE_NAME: p2pchat-server
+  DOCKER_IMAGE_NAME: p2pchat
 
 jobs:
   build-and-push:

@@ -41,15 +41,15 @@ A WebRTC-based peer-to-peer chat application with separate frontend and backend.
 
 ```bash
 # Replace 'yourname' with the actual Docker Hub username
-docker run -d --name p2pchat -p 8080:8080 yourname/p2pchat-server:latest
+docker run -d --name p2pchat -p 8080:8080 yourname/p2pchat:latest
 ```
 
 ### Option 2: Build Locally
 
 ```bash
 cd server
-docker build -t p2pchat-server .
-docker run -d --name p2pchat -p 8080:8080 p2pchat-server
+docker build -t p2pchat .
+docker run -d --name p2pchat -p 8080:8080 p2pchat
 ```
 
 ### Environment Variables
@@ -59,7 +59,7 @@ docker run -d --name p2pchat -p 8080:8080 p2pchat-server
 ### Example with custom port:
 
 ```bash
-docker run -d --name p2pchat -p 3000:3000 -e PORT=3000 p2pchat-server
+docker run -d --name p2pchat -p 3000:3000 -e PORT=3000 p2pchat
 ```
 
 ## Features
