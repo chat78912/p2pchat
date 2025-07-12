@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P聊天室 - 智能自动连接</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🚀 P2P聊天室</h1>
+            <div class="connection-status status-disconnected" id="connectionStatus">
+                离线
+            </div>
+        </div>
+
+        <div class="room-section" id="modeSection">
+            <div class="connection-mode">
+                <button class="mode-btn active" id="lanMode" data-mode="lan">🏠 局域网模式</button>
+                <button class="mode-btn" id="internetMode" data-mode="internet">🌐 公网模式</button>
+            </div>
+            
+            <!-- 局域网模式：自动连接状态 -->
+            <div class="auto-connect-info" id="autoConnectInfo">
+                <div class="auto-status" id="autoStatus">
+                    🔍 正在自动检测网络环境...
+                </div>
+                
+                <!-- 网络信息显示 -->
+                <div class="network-info" id="networkInfo">
+                    <div class="network-detail">
+                        <span class="network-label">本地IP:</span>
+                        <span class="network-value" id="localIP">检测中...</span>
+                    </div>
+                    <div class="network-detail">
+                        <span class="network-label">网络段:</span>
+                        <span class="network-value" id="networkSegment">检测中...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 公网模式：手动输入（默认隐藏） -->
+            <div class="manual-connect-info" id="manualConnectInfo" style="display: none;">
+                <div class="room-controls">
+                    <input type="text" id="roomInput" placeholder="输入房间号..." maxlength="20">
+                    <button class="btn btn-primary" id="joinBtn">加入房间</button>
+                    <button class="btn btn-secondary" id="leaveBtn" style="display: none;">离开房间</button>
+                </div>
+            </div>
+            
+            <div class="room-info">
+                <span id="roomInfo">局域网自动连接</span>
+                <span id="userCount">同网段用户: 0</span>
+            </div>
+        </div>
+
+        <div class="chat-messages" id="chatMessages">
+            <div class="message message-system">
+                🎉 欢迎使用P2P聊天室！
+            </div>
+            <div class="message message-system">
+                🏠 <strong>局域网模式</strong>：自动发现同网段用户，无需任何操作
+            </div>
+            <div class="message message-system">
+                🌐 <strong>公网模式</strong>：手动输入房间号连接全球用户
+            </div>
+            <div class="message message-system">
+                🚀 系统正在自动检测网络环境，请稍候...
+            </div>
+        </div>
+
+        <div class="chat-input">
+            <div class="input-group">
+                <input type="text" id="messageInput" placeholder="检测到同网段用户后即可开始聊天..." disabled>
+                <button class="btn btn-primary" id="sendBtn" disabled>发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 页面加载时的模式切换逻辑
+        document.addEventListener('DOMContentLoaded', () => {
+            const lanMode = document.getElementById('lanMode');
+            const internetMode = document.getElementById('internetMode');
+            const autoConnectInfo = document.getElementById('autoConnectInfo');
+            const manualConnectInfo = document.getElementById('manualConnectInfo');
+            const roomInfo = document.getElementById('roomInfo');
+            const userCount = document.getElementById('userCount');
+            const messageInput = document.getElementById('messageInput');
+
+            // 模式切换函数
+            function switchMode(mode) {
+                // 更新按钮状态
+                document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+                
+                if (mode === 'lan') {
+                    lanMode.classList.add('active');
+                    // 显示自动连接界面
+                    autoConnectInfo.style.display = 'block';
+                    manualConnectInfo.style.display = 'none';
+                    roomInfo.textContent = '局域网自动连接';
+                    userCount.textContent = '同网段用户: 0';
+                    messageInput.placeholder = '检测到同网段用户后即可开始聊天...';
+                } else {
+                    internetMode.classList.add('active');
+                    // 显示手动连接界面
+                    autoConnectInfo.style.display = 'none';
+                    manualConnectInfo.style.display = 'block';
+                    roomInfo.textContent = '未连接到房间';
+                    userCount.textContent = '在线用户: 0';
+                    messageInput.placeholder = '加入房间后即可开始聊天...';
+                }
+            }
+
+            // 绑定模式切换事件
+            lanMode.addEventListener('click', () => switchMode('lan'));
+            internetMode.addEventListener('click', () => switchMode('internet'));
+
+            // 默认设置为局域网模式
+            switchMode('lan');
+        });
+    </script>
+    <script src="app.js"></script>
+</body>
+</html>
