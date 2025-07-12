@@ -53,10 +53,11 @@ class P2PChat {
             this.ws = new WebSocket(WS_CONFIG.url);
             
             this.ws.onopen = () => {
-                console.log('WebSocket connected');
+                console.log('WebSocket connected to:', WS_CONFIG.url);
                 this.isConnected = true;
                 this.reconnectAttempts = 0;
                 this.updateConnectionStatus('connected');
+                this.addSystemMessage('✅ 已连接到信令服务器');
                 this.startHeartbeat();
                 
                 if (this.connectionMode === 'lan') {
@@ -72,6 +73,7 @@ class P2PChat {
             this.ws.onerror = (error) => {
                 console.error('WebSocket error:', error);
                 this.updateConnectionStatus('error');
+                this.addSystemMessage('❌ 连接错误，请检查网络');
             };
             
             this.ws.onclose = () => {
@@ -151,7 +153,8 @@ class P2PChat {
 
     autoConnectToLAN() {
         this.updateAutoStatus('🔍 正在自动连接局域网...');
-        const defaultRoom = `lan_auto_${Date.now() % 1000}`;
+        // 使用固定的默认房间名，让所有局域网用户能够相遇
+        const defaultRoom = 'lan_auto_default';
         
         this.ws.send(JSON.stringify({
             type: 'join',
@@ -197,6 +200,8 @@ class P2PChat {
         this.currentRoom = data.roomId || this.currentRoom;
         const users = data.users || [];
         
+        console.log('Joined room:', this.currentRoom, 'with users:', users);
+        
         if (this.connectionMode === 'lan') {
             this.updateAutoStatus('✅ 已自动连接到局域网');
             this.elements.roomInfo.textContent = '局域网自动连接';
@@ -211,11 +216,12 @@ class P2PChat {
         this.elements.sendBtn.disabled = false;
         
         this.updateUserCount(users.length);
-        this.addSystemMessage(`已加入房间${this.connectionMode === 'lan' ? '（局域网自动连接）' : ''}`);
+        this.addSystemMessage(`已加入房间${this.connectionMode === 'lan' ? '（局域网自动连接）' : ''}，当前 ${users.length} 人在线`);
         
         // Connect to existing users
         users.forEach(userId => {
             if (userId !== this.userId) {
+                console.log('Creating peer connection with:', userId);
                 this.createPeerConnection(userId, true);
             }
         });
