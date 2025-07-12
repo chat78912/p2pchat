@@ -32,7 +32,8 @@ class P2PChat {
             internetMode: document.getElementById('internetMode'),
             autoStatus: document.getElementById('autoStatus'),
             serverUrl: document.getElementById('serverUrl'),
-            connectBtn: document.getElementById('connectBtn')
+            connectBtn: document.getElementById('connectBtn'),
+            serverControls: document.getElementById('serverControls')
         };
     }
 
@@ -107,6 +108,9 @@ class P2PChat {
                 this.addSystemMessage('✅ 已连接到信令服务器');
                 this.startHeartbeat();
                 
+                // 连接成功后隐藏服务器地址输入框
+                this.elements.serverControls.style.display = 'none';
+                
                 if (this.connectionMode === 'lan') {
                     this.autoConnectToLAN();
                 }
@@ -129,6 +133,9 @@ class P2PChat {
                 this.updateConnectionStatus('disconnected');
                 this.stopHeartbeat();
                 this.closePeerConnections();
+                
+                // 连接断开后显示服务器地址输入框
+                this.elements.serverControls.style.display = 'flex';
                 
                 if (this.reconnectAttempts < WS_CONFIG.maxReconnectAttempts) {
                     setTimeout(() => {
@@ -563,24 +570,22 @@ class P2PChat {
             minute: '2-digit' 
         });
         
-        // 为他人消息创建头部信息（头像 + 名字 + 时间）
-        if (!isOwn) {
-            const messageHeader = document.createElement('div');
-            messageHeader.className = 'message-header';
-            
-            const avatar = document.createElement('img');
-            avatar.className = 'message-avatar';
-            avatar.src = userInfo.avatar;
-            avatar.alt = userInfo.name;
-            
-            const headerText = document.createElement('div');
-            headerText.className = 'message-header-text';
-            headerText.innerHTML = `<span class="message-name">${userInfo.name}</span><span class="message-time">${time}</span>`;
-            
-            messageHeader.appendChild(avatar);
-            messageHeader.appendChild(headerText);
-            messageWrapper.appendChild(messageHeader);
-        }
+        // 创建消息头部信息（头像 + 名字 + 时间）
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        const avatar = document.createElement('img');
+        avatar.className = 'message-avatar';
+        avatar.src = userInfo.avatar;
+        avatar.alt = userInfo.name;
+        
+        const headerText = document.createElement('div');
+        headerText.className = 'message-header-text';
+        headerText.innerHTML = `<span class="message-name">${userInfo.name}${isOwn ? ' (我)' : ''}</span><span class="message-time">${time}</span>`;
+        
+        messageHeader.appendChild(avatar);
+        messageHeader.appendChild(headerText);
+        messageWrapper.appendChild(messageHeader);
         
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${isOwn ? 'message-own' : 'message-other'}`;
@@ -591,16 +596,7 @@ class P2PChat {
         textDiv.textContent = data.text;
         messageDiv.appendChild(textDiv);
         
-        // 自己的消息时间放在气泡外面
-        if (isOwn) {
-            const timeDiv = document.createElement('div');
-            timeDiv.className = 'message-timestamp';
-            timeDiv.textContent = time;
-            messageWrapper.appendChild(messageDiv);
-            messageWrapper.appendChild(timeDiv);
-        } else {
-            messageWrapper.appendChild(messageDiv);
-        }
+        messageWrapper.appendChild(messageDiv);
         
         this.elements.chatMessages.appendChild(messageWrapper);
         this.elements.chatMessages.scrollTop = this.elements.chatMessages.scrollHeight;
