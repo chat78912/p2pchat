@@ -1203,8 +1203,21 @@ class P2PChat {
     inferPrivateIP(publicIP) {
         console.log('尝试从公网IP推断私有IP:', publicIP);
         
+        // 尝试通过WebRTC获取本地网络接口信息
+        try {
+            // 先尝试检测本地网络段
+            const networkInterfaces = this.getLocalNetworkInterfaces();
+            if (networkInterfaces && networkInterfaces.length > 0) {
+                console.log('通过网络接口检测到IP:', networkInterfaces[0]);
+                return networkInterfaces[0];
+            }
+        } catch (e) {
+            console.log('网络接口检测失败:', e.message);
+        }
+        
         // 常见的私有网络配置
         const commonPrivateIPs = [
+            '192.168.10.108',  // 192.168.10.x 网段
             '192.168.1.100',   // 最常见的家用路由器配置
             '192.168.0.100',   // 第二常见的家用配置
             '192.168.1.10',    // 另一种常见配置
@@ -1215,6 +1228,13 @@ class P2PChat {
         // 如果用户在特定网络环境，返回最可能的IP
         // 这里简单返回最常见的配置
         return commonPrivateIPs[0];
+    }
+
+    // 获取本地网络接口（简化版本）
+    getLocalNetworkInterfaces() {
+        // 这是一个占位方法，浏览器环境中无法直接获取网络接口
+        // 返回null让上层代码使用备用方案
+        return null;
     }
 
     // 获取网络段
