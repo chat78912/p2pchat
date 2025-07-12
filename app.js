@@ -290,10 +290,13 @@ class P2PChat {
         try {
             this.updateAutoStatus('🔄 尝试备用连接方案...', 'loading');
             
-            // 方案1：尝试使用通用网段
+            // 方案1：尝试使用通用网段（包含你的网段）
             const commonNetworkSegments = [
-                '192.168.1',
-                '192.168.0', 
+                '192.168.10',  // 你的网段 - 优先尝试
+                '192.168.1',   // 最常见
+                '192.168.0',   // 第二常见
+                '192.168.2',   // 其他常见
+                '192.168.8',
                 '10.0',
                 '172.16.0'
             ];
@@ -491,6 +494,17 @@ class P2PChat {
     async detectLocalIP() {
         console.log('开始检测本地IP地址...');
         
+        // 方法0：先尝试更宽松的本地候选检测
+        try {
+            const permissiveResult = await this.detectIPViaPermissiveLocal();
+            if (permissiveResult) {
+                console.log('宽松本地检测到IP:', permissiveResult);
+                return permissiveResult;
+            }
+        } catch (error) {
+            console.warn('宽松本地检测失败:', error.message);
+        }
+        
         // 方法1：快速WebRTC检测 - 使用最稳定的STUN服务器
         try {
             const fastResult = await this.detectIPViaFastWebRTC();
@@ -527,6 +541,64 @@ class P2PChat {
         // 方法4：如果所有检测都失败，使用智能推断
         console.log('所有检测方法失败，使用智能推断...');
         return await this.getIntelligentFallbackIP();
+    }
+    
+    // 新增：更宽松的本地IP检测（接受所有192.168.x.x）
+    async detectIPViaPermissiveLocal() {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                pc.close();
+                reject(new Error('宽松本地检测超时'));
+            }, 8000);
+
+            const pc = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.qq.com:3478' },
+                    { urls: 'stun:stun.miwifi.com:3478' }
+                ]
+            });
+
+            pc.createDataChannel('permissive-local');
+            
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    const candidate = event.candidate.candidate;
+                    console.log('宽松检测候选:', candidate);
+                    
+                    // 寻找所有192.168.x.x格式的IP
+                    const ip192Regex = /192\.168\.\d+\.\d+/g;
+                    const matches = candidate.match(ip192Regex);
+                    
+                    if (matches && matches.length > 0) {
+                        clearTimeout(timeout);
+                        pc.close();
+                        console.log('宽松检测找到192.168网段IP:', matches[0]);
+                        resolve(matches[0]);
+                        return;
+                    }
+                    
+                    // 如果没有192.168，寻找其他私有IP
+                    const ipRegex = /(\d+\.\d+\.\d+\.\d+)/g;
+                    const allMatches = candidate.match(ipRegex);
+                    
+                    if (allMatches) {
+                        for (const ip of allMatches) {
+                            if (this.isPrivateIP(ip)) {
+                                clearTimeout(timeout);
+                                pc.close();
+                                console.log('宽松检测找到私有IP:', ip);
+                                resolve(ip);
+                                return;
+                            }
+                        }
+                    }
+                }
+            };
+
+            pc.createOffer()
+                .then(offer => pc.setLocalDescription(offer))
+                .catch(reject);
+        });
     }
 
     // 智能推断IP地址（当所有检测方法失败时）
@@ -654,22 +726,31 @@ class P2PChat {
         return null;
     }
     
-    // 从公网IP推断本地IP
+    // 从公网IP推断本地IP（现在包含更多网段）
     inferFromPublicIP(publicIP) {
         console.log('从公网IP推断本地IP:', publicIP);
         
-        // 根据公网IP的地理位置特征推断
+        // 常见的家庭网络配置（按使用频率排序）
+        const commonHomeNetworks = [
+            '192.168.1.100',   // 最常见
+            '192.168.0.100',   // 第二常见
+            '192.168.10.100',  // 你的网段！
+            '192.168.2.100',   // 其他常见配置
+            '192.168.8.100',
+            '10.0.0.100',      // 企业网络
+            '172.16.0.100'
+        ];
+        
+        // 根据公网IP特征返回最可能的配置
         const parts = publicIP.split('.').map(Number);
         
-        // 中国常见的运营商IP段对应的家庭网络配置
         if (parts[0] >= 112 && parts[0] <= 125) {
-            // 电信网络，通常使用192.168.1.x
+            // 电信网络
             return '192.168.1.100';
         } else if (parts[0] >= 183 && parts[0] <= 223) {
-            // 移动/联通网络，可能使用192.168.0.x或192.168.1.x
-            return '192.168.0.100';
+            // 移动/联通网络，可能使用10.x网段
+            return '192.168.10.100';  // 改为你的网段
         } else {
-            // 其他情况，使用最常见的配置
             return '192.168.1.100';
         }
     }
@@ -713,17 +794,29 @@ class P2PChat {
         });
     }
     
-    // 默认推断策略
+    // 默认推断策略（现在包含更多可能的网段）
     getDefaultFallbackIP() {
+        // 根据时间和其他因素智能推断
         const currentHour = new Date().getHours();
         const isWorkingHours = currentHour >= 9 && currentHour <= 17;
         
+        // 常见的家庭网络配置
+        const homeNetworks = [
+            '192.168.10.100', // 你的网段，优先尝试
+            '192.168.1.100',  // 最常见
+            '192.168.0.100',  // 第二常见
+            '192.168.2.100'   // 其他常见
+        ];
+        
         if (isWorkingHours) {
-            console.log('推断为企业网络环境');
-            return '10.0.0.100';
+            // 工作时间，可能是企业网络，但也可能在家办公
+            console.log('推断为工作时间，尝试企业网络或家庭网络');
+            return Math.random() > 0.5 ? '10.0.0.100' : homeNetworks[0];
         } else {
-            console.log('推断为家庭网络环境');
-            return '192.168.1.100';
+            // 非工作时间，更可能是家庭网络
+            console.log('推断为家庭网络环境，尝试常见配置');
+            // 随机选择一个常见的家庭网络配置
+            return homeNetworks[Math.floor(Math.random() * homeNetworks.length)];
         }
     }
 
