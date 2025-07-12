@@ -250,9 +250,20 @@ class P2PChat {
     }
 
     createPeerConnection(peerId, createOffer) {
+        console.log(`Creating peer connection with ${peerId}, createOffer: ${createOffer}`);
         const pc = new RTCPeerConnection(RTC_CONFIG);
         const peerData = { pc, dataChannel: null };
         this.peers.set(peerId, peerData);
+        
+        // Monitor connection state
+        pc.onconnectionstatechange = () => {
+            console.log(`Connection state with ${peerId}: ${pc.connectionState}`);
+            if (pc.connectionState === 'connected') {
+                this.addSystemMessage(`✅ 已与用户建立P2P连接`);
+            } else if (pc.connectionState === 'failed') {
+                this.addSystemMessage(`❌ 与用户的P2P连接失败`);
+            }
+        };
         
         // Create data channel
         if (createOffer) {
@@ -263,6 +274,7 @@ class P2PChat {
         
         pc.onicecandidate = (event) => {
             if (event.candidate) {
+                console.log(`Sending ICE candidate to ${peerId}`);
                 this.ws.send(JSON.stringify({
                     type: 'ice-candidate',
                     target: peerId,
@@ -272,18 +284,22 @@ class P2PChat {
         };
         
         pc.ondatachannel = (event) => {
+            console.log(`Received data channel from ${peerId}`);
             peerData.dataChannel = event.channel;
             this.setupDataChannel(event.channel, peerId);
         };
         
         if (createOffer) {
             pc.createOffer().then(offer => {
+                console.log(`Creating offer for ${peerId}`);
                 pc.setLocalDescription(offer);
                 this.ws.send(JSON.stringify({
                     type: 'offer',
                     target: peerId,
                     data: offer
                 }));
+            }).catch(error => {
+                console.error(`Failed to create offer for ${peerId}:`, error);
             });
         }
         
@@ -293,6 +309,9 @@ class P2PChat {
     setupDataChannel(dataChannel, peerId) {
         dataChannel.onopen = () => {
             console.log(`Data channel opened with ${peerId}`);
+            this.addSystemMessage(`💬 数据通道已建立，可以开始聊天`);
+            // 更新界面状态
+            this.updateChannelStatus();
         };
         
         dataChannel.onmessage = (event) => {
@@ -302,11 +321,30 @@ class P2PChat {
         
         dataChannel.onerror = (error) => {
             console.error(`Data channel error with ${peerId}:`, error);
+            this.addSystemMessage(`⚠️ 数据通道错误`);
         };
         
         dataChannel.onclose = () => {
             console.log(`Data channel closed with ${peerId}`);
+            this.updateChannelStatus();
         };
+    }
+    
+    updateChannelStatus() {
+        // 检查是否有任何活跃的数据通道
+        let hasActiveChannel = false;
+        this.peers.forEach(peerData => {
+            if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                hasActiveChannel = true;
+            }
+        });
+        
+        // 根据通道状态更新UI
+        if (hasActiveChannel) {
+            this.elements.messageInput.placeholder = '输入消息...';
+        } else {
+            this.elements.messageInput.placeholder = '等待建立P2P连接...';
+        }
     }
 
     handleOffer(data) {

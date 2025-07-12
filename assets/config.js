@@ -2,7 +2,8 @@
 const WS_CONFIG = {
   // Replace with your actual backend server URL when deploying
   // Example: 'wss://your-server.com' or 'ws://192.168.1.100:5082'
-  url: 'wss://chatserver.canghai.org:5082',
+  // 如果使用反向代理（nginx），可能不需要端口号
+  url: 'wss://chatserver.canghai.org',
   
   // Connection settings
   heartbeatInterval: 30000,  // 30 seconds
