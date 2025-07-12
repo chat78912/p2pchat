@@ -501,7 +501,8 @@ class P2PChat {
         const detectPromises = [
             this.detectViaWebRTCWithSTUN(),
             this.detectViaWebRTCLocal(),
-            this.detectViaMediaDevices()
+            this.detectIPViaFastWebRTC(),  // 添加原来工作的方法
+            this.detectIPViaPermissiveLocal()  // 添加宽松检测
         ];
         
         // 等待所有检测完成（不抛出错误）
@@ -677,17 +678,17 @@ class P2PChat {
     // 新增：更宽松的本地IP检测（接受所有192.168.x.x）
     async detectIPViaPermissiveLocal() {
         return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                pc.close();
-                reject(new Error('宽松本地检测超时'));
-            }, 8000);
-
             const pc = new RTCPeerConnection({
                 iceServers: [
                     { urls: 'stun:stun.qq.com:3478' },
                     { urls: 'stun:stun.miwifi.com:3478' }
                 ]
             });
+            
+            const timeout = setTimeout(() => {
+                pc.close();
+                reject(new Error('宽松本地检测超时'));
+            }, 8000);
 
             pc.createDataChannel('permissive-local');
             
@@ -954,17 +955,17 @@ class P2PChat {
     // 方法1：快速WebRTC检测 - 使用最可靠的STUN服务器
     async detectIPViaFastWebRTC() {
         return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                pc.close();
-                reject(new Error('快速WebRTC检测超时'));
-            }, 8000);
-
             const pc = new RTCPeerConnection({
                 iceServers: [
                     { urls: 'stun:stun.qq.com:3478' },
                     { urls: 'stun:stun.miwifi.com:3478' }
                 ]
             });
+            
+            const timeout = setTimeout(() => {
+                pc.close();
+                reject(new Error('快速WebRTC检测超时'));
+            }, 8000);
 
             pc.createDataChannel('ip-detection');
             
@@ -1146,17 +1147,20 @@ class P2PChat {
                 if (!event.candidate) {
                     clearTimeout(timeout);
                     pc.close();
+                    console.log('STUN检测完成，找到IPs:', Array.from(ips));
                     resolve(Array.from(ips));
                     return;
                 }
                 
                 const candidate = event.candidate.candidate;
+                console.log('STUN候选:', candidate);
                 
                 // 提取所有IP地址
                 const ipRegex = /([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/g;
                 let match;
                 while ((match = ipRegex.exec(candidate)) !== null) {
                     const ip = match[1];
+                    console.log('发现IP:', ip, '是私有IP:', this.isPrivateIP(ip));
                     if (this.isPrivateIP(ip)) {
                         ips.add(ip);
                     }
@@ -1165,8 +1169,11 @@ class P2PChat {
                 // 从srflx类型中提取raddr
                 if (candidate.includes('typ srflx') && candidate.includes('raddr')) {
                     const raddrMatch = candidate.match(/raddr\s+([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/);
-                    if (raddrMatch && raddrMatch[1] !== '0.0.0.0' && this.isPrivateIP(raddrMatch[1])) {
-                        ips.add(raddrMatch[1]);
+                    if (raddrMatch && raddrMatch[1] !== '0.0.0.0') {
+                        console.log('从srflx提取raddr:', raddrMatch[1], '是私有IP:', this.isPrivateIP(raddrMatch[1]));
+                        if (this.isPrivateIP(raddrMatch[1])) {
+                            ips.add(raddrMatch[1]);
+                        }
                     }
                 }
             };
@@ -1198,15 +1205,19 @@ class P2PChat {
                 if (!event.candidate) {
                     clearTimeout(timeout);
                     pc.close();
+                    console.log('本地检测完成，找到IPs:', Array.from(ips));
                     resolve(Array.from(ips));
                     return;
                 }
                 
                 const candidate = event.candidate.candidate;
+                console.log('本地候选:', candidate);
+                
                 const ipRegex = /([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/g;
                 let match;
                 while ((match = ipRegex.exec(candidate)) !== null) {
                     const ip = match[1];
+                    console.log('本地发现IP:', ip, '是私有IP:', this.isPrivateIP(ip));
                     if (this.isPrivateIP(ip)) {
                         ips.add(ip);
                     }
