@@ -207,6 +207,14 @@ class P2PChat {
             return;
         }
 
+        // 先离开当前房间（如果有）
+        if (this.currentRoom) {
+            // 只清理本地状态，不发送leave消息
+            this.closePeerConnections();
+            this.currentRoom = null;
+        }
+
+        // 加入新房间
         this.ws.send(JSON.stringify({
             type: 'join',
             room: roomId
@@ -433,19 +441,24 @@ class P2PChat {
     }
 
     displayMessage(data, isOwn) {
+        const messageWrapper = document.createElement('div');
+        messageWrapper.className = `message-wrapper ${isOwn ? 'own' : 'other'}`;
+        
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${isOwn ? 'message-own' : 'message-other'}`;
         
-        const time = new Date(data.timestamp).toLocaleTimeString();
+        const time = new Date(data.timestamp).toLocaleTimeString('zh-CN', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        });
+        
         messageDiv.innerHTML = `
-            <div class="message-info">
-                <span class="message-user">${isOwn ? '我' : '用户'}</span>
-                <span class="message-time">${time}</span>
-            </div>
             <div class="message-text">${this.escapeHtml(data.text)}</div>
+            <div class="message-time">${time}</div>
         `;
         
-        this.elements.chatMessages.appendChild(messageDiv);
+        messageWrapper.appendChild(messageDiv);
+        this.elements.chatMessages.appendChild(messageWrapper);
         this.elements.chatMessages.scrollTop = this.elements.chatMessages.scrollHeight;
     }
 
@@ -460,20 +473,21 @@ class P2PChat {
 
     updateConnectionStatus(status) {
         const statusElement = this.elements.connectionStatus;
+        const statusText = statusElement.querySelector('.status-text');
         statusElement.className = 'connection-status';
         
         switch (status) {
             case 'connected':
                 statusElement.classList.add('status-connected');
-                statusElement.textContent = '已连接';
+                if (statusText) statusText.textContent = '已连接';
                 break;
             case 'disconnected':
                 statusElement.classList.add('status-disconnected');
-                statusElement.textContent = '未连接';
+                if (statusText) statusText.textContent = '未连接';
                 break;
             case 'error':
                 statusElement.classList.add('status-error');
-                statusElement.textContent = '连接错误';
+                if (statusText) statusText.textContent = '连接错误';
                 break;
         }
     }
