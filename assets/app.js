@@ -13,7 +13,8 @@ class P2PChat {
         
         this.initializeElements();
         this.bindEvents();
-        this.connectWebSocket();
+        // 不再自动连接，等待用户输入服务器地址
+        this.loadSavedServer();
     }
 
     initializeElements() {
@@ -29,7 +30,9 @@ class P2PChat {
             userCount: document.getElementById('userCount'),
             lanMode: document.getElementById('lanMode'),
             internetMode: document.getElementById('internetMode'),
-            autoStatus: document.getElementById('autoStatus')
+            autoStatus: document.getElementById('autoStatus'),
+            serverUrl: document.getElementById('serverUrl'),
+            connectBtn: document.getElementById('connectBtn')
         };
     }
 
@@ -48,14 +51,46 @@ class P2PChat {
 
         this.elements.lanMode.addEventListener('click', () => this.setConnectionMode('lan'));
         this.elements.internetMode.addEventListener('click', () => this.setConnectionMode('internet'));
+        this.elements.connectBtn.addEventListener('click', () => this.handleConnect());
+        this.elements.serverUrl.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.handleConnect();
+        });
     }
 
-    connectWebSocket() {
+    loadSavedServer() {
+        const savedUrl = localStorage.getItem('serverUrl');
+        if (savedUrl) {
+            this.elements.serverUrl.value = savedUrl;
+            // 自动连接保存的服务器
+            this.connectWebSocket(savedUrl);
+        }
+    }
+    
+    handleConnect() {
+        const serverUrl = this.elements.serverUrl.value.trim();
+        if (!serverUrl) {
+            this.addSystemMessage('请输入服务器地址');
+            return;
+        }
+        
+        // 关闭现有连接
+        if (this.ws) {
+            this.ws.close();
+        }
+        
+        // 保存服务器地址
+        localStorage.setItem('serverUrl', serverUrl);
+        
+        // 连接新服务器
+        this.connectWebSocket(serverUrl);
+    }
+    
+    connectWebSocket(serverUrl) {
         try {
-            this.ws = new WebSocket(WS_CONFIG.url);
+            this.ws = new WebSocket(serverUrl || WS_CONFIG.url);
             
             this.ws.onopen = () => {
-                console.log('WebSocket connected to:', WS_CONFIG.url);
+                console.log('WebSocket connected to:', serverUrl || WS_CONFIG.url);
                 this.isConnected = true;
                 this.reconnectAttempts = 0;
                 this.updateConnectionStatus('connected');
@@ -88,7 +123,7 @@ class P2PChat {
                 if (this.reconnectAttempts < WS_CONFIG.maxReconnectAttempts) {
                     setTimeout(() => {
                         this.reconnectAttempts++;
-                        this.connectWebSocket();
+                        this.connectWebSocket(serverUrl);
                     }, WS_CONFIG.reconnectDelay);
                 }
             };
@@ -213,7 +248,6 @@ class P2PChat {
     }
 
     autoConnectToLAN() {
-        this.updateAutoStatus('🔍 正在自动连接局域网...');
         // 使用固定的默认房间名，让所有局域网用户能够相遇
         const defaultRoom = 'lan_auto_default';
         
@@ -293,8 +327,7 @@ class P2PChat {
         this.users.set(this.userId, this.userInfo);
         
         if (this.connectionMode === 'lan') {
-            this.updateAutoStatus('✅ 已自动连接到局域网');
-            this.elements.roomInfo.textContent = '局域网自动连接';
+            this.elements.roomInfo.textContent = '局域网房间';
         } else {
             this.elements.roomInput.style.display = 'none';
             this.elements.joinBtn.style.display = 'none';
@@ -533,9 +566,11 @@ class P2PChat {
         });
         
         messageDiv.innerHTML = `
-            ${!isOwn ? `<div class="message-name">${this.escapeHtml(userInfo.name)}</div>` : ''}
             <div class="message-text">${this.escapeHtml(data.text)}</div>
-            <div class="message-time">${time}</div>
+            <div class="message-meta">
+                ${!isOwn ? `<span class="message-name">${this.escapeHtml(userInfo.name)}</span>` : ''}
+                <span class="message-time">${time}</span>
+            </div>
         `;
         
         messageWrapper.appendChild(messageDiv);

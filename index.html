@@ -14,18 +14,19 @@
                     <button class="mode-btn active" id="lanMode" data-mode="lan">局域网</button>
                     <button class="mode-btn" id="internetMode" data-mode="internet">公网</button>
                 </div>
-                <div class="connection-status status-disconnected" id="connectionStatus">
-                    <span class="status-dot"></span>
-                    <span class="status-text">离线</span>
+                <div class="server-controls">
+                    <input type="text" id="serverUrl" placeholder="wss://服务器地址" class="server-input">
+                    <button class="btn-connect" id="connectBtn">连接</button>
+                    <div class="connection-status status-disconnected" id="connectionStatus">
+                        <span class="status-dot"></span>
+                        <span class="status-text">离线</span>
+                    </div>
                 </div>
             </div>
             
             <!-- 局域网模式：自动连接状态 -->
-            <div class="auto-connect-info" id="autoConnectInfo">
-                <div class="auto-status" id="autoStatus">
-                    🔍 正在自动检测网络环境...
-                </div>
-                
+            <div class="auto-connect-info" id="autoConnectInfo" style="display: none;">
+                <div class="auto-status" id="autoStatus"></div>
             </div>
             
             <!-- 公网模式：手动输入（默认隐藏） -->
