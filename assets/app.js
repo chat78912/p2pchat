@@ -130,13 +130,23 @@ class P2PChat {
     }
     
     generateUserInfo() {
-        const names = ['小猫', '小狗', '小熊', '小鸟', '小鱼', '小兔', '小虎', '小龙', '小马', '小羊'];
-        const adjectives = ['快乐的', '聪明的', '可爱的', '活泼的', '温柔的', '勇敢的', '友善的', '机智的'];
-        const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57', '#FF9FF3', '#54A0FF', '#48DBFB'];
+        // 四大名著人物名字
+        const names = [
+            // 西游记
+            '孙悟空', '唐僧', '猪八戒', '沙僧', '白龙马', '观音菩萨', '如来佛祖', '玉皇大帝', '太白金星', '哪吒',
+            // 红楼梦
+            '贾宝玉', '林黛玉', '薛宝钗', '王熙凤', '贾母', '刘姥姥', '史湘云', '妙玉', '晴雯', '袭人',
+            // 三国演义
+            '刘备', '关羽', '张飞', '诸葛亮', '曹操', '赵云', '吕布', '貂蝉', '周瑜', '小乔',
+            // 水浒传
+            '宋江', '林冲', '武松', '鲁智深', '李逵', '燕青', '潘金莲', '孙二娘', '扈三娘', '时迁'
+        ];
         
-        const name = adjectives[Math.floor(Math.random() * adjectives.length)] + 
-                     names[Math.floor(Math.random() * names.length)];
-        const avatar = colors[Math.floor(Math.random() * colors.length)];
+        const name = names[Math.floor(Math.random() * names.length)];
+        
+        // 使用 DiceBear API 生成随机头像
+        const seed = Math.random().toString(36).substring(2, 15);
+        const avatar = `https://api.dicebear.com/7.x/adventurer/svg?seed=${seed}`;
         
         return { name, avatar };
     }
@@ -500,14 +510,17 @@ class P2PChat {
         const messageWrapper = document.createElement('div');
         messageWrapper.className = `message-wrapper ${isOwn ? 'own' : 'other'}`;
         
-        const userInfo = data.userInfo || this.users.get(data.userId) || { name: '未知用户', avatar: '#999' };
+        const userInfo = data.userInfo || this.users.get(data.userId) || { 
+            name: '未知用户', 
+            avatar: 'https://api.dicebear.com/7.x/adventurer/svg?seed=unknown' 
+        };
         
         // 头像
         if (!isOwn) {
-            const avatar = document.createElement('div');
+            const avatar = document.createElement('img');
             avatar.className = 'message-avatar';
-            avatar.style.backgroundColor = userInfo.avatar;
-            avatar.textContent = userInfo.name.charAt(0);
+            avatar.src = userInfo.avatar;
+            avatar.alt = userInfo.name;
             messageWrapper.appendChild(avatar);
         }
         
@@ -609,12 +622,9 @@ class P2PChat {
             const isSelf = userId === this.userId;
             
             return `
-                <div class="user-item ${isSelf ? 'user-self' : ''}">
-                    <div class="user-avatar" style="background-color: ${userInfo.avatar}">
-                        ${userInfo.name.charAt(0)}
-                    </div>
+                <div class="user-item ${isSelf ? 'user-self' : ''} ${isConnected || isSelf ? 'user-connected' : ''}">
+                    <img class="user-avatar-small" src="${userInfo.avatar}" alt="${userInfo.name}">
                     <span class="user-name">${userInfo.name}${isSelf ? ' (我)' : ''}</span>
-                    ${(isConnected || isSelf) ? '<span class="user-status-dot"></span>' : ''}
                 </div>
             `;
         }).join('');

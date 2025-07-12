@@ -8,17 +8,16 @@
 </head>
 <body>
     <div class="chat-container">
-        <div class="chat-header">
-            <div class="connection-status status-disconnected" id="connectionStatus">
-                <span class="status-dot"></span>
-                <span class="status-text">离线</span>
-            </div>
-        </div>
-
         <div class="room-section" id="modeSection">
-            <div class="connection-mode">
-                <button class="mode-btn active" id="lanMode" data-mode="lan">🏠 局域网模式</button>
-                <button class="mode-btn" id="internetMode" data-mode="internet">🌐 公网模式</button>
+            <div class="section-header">
+                <div class="connection-mode">
+                    <button class="mode-btn active" id="lanMode" data-mode="lan">局域网</button>
+                    <button class="mode-btn" id="internetMode" data-mode="internet">公网</button>
+                </div>
+                <div class="connection-status status-disconnected" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">离线</span>
+                </div>
             </div>
             
             <!-- 局域网模式：自动连接状态 -->
