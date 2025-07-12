@@ -58,19 +58,29 @@ class P2PChat {
     }
 
     loadSavedServer() {
-        const savedUrl = localStorage.getItem('serverUrl');
-        if (savedUrl) {
-            this.elements.serverUrl.value = savedUrl;
+        const savedInput = localStorage.getItem('serverUrl');
+        if (savedInput) {
+            this.elements.serverUrl.value = savedInput;
             // 自动连接保存的服务器
-            this.connectWebSocket(savedUrl);
+            let serverUrl = savedInput;
+            if (!savedInput.startsWith('ws://') && !savedInput.startsWith('wss://')) {
+                serverUrl = 'wss://' + savedInput;
+            }
+            this.connectWebSocket(serverUrl);
         }
     }
     
     handleConnect() {
-        const serverUrl = this.elements.serverUrl.value.trim();
-        if (!serverUrl) {
+        const serverInput = this.elements.serverUrl.value.trim();
+        if (!serverInput) {
             this.addSystemMessage('请输入服务器地址');
             return;
+        }
+        
+        // 自动添加wss://前缀
+        let serverUrl = serverInput;
+        if (!serverInput.startsWith('ws://') && !serverInput.startsWith('wss://')) {
+            serverUrl = 'wss://' + serverInput;
         }
         
         // 关闭现有连接
@@ -78,8 +88,8 @@ class P2PChat {
             this.ws.close();
         }
         
-        // 保存服务器地址
-        localStorage.setItem('serverUrl', serverUrl);
+        // 保存原始输入（不含前缀）
+        localStorage.setItem('serverUrl', serverInput);
         
         // 连接新服务器
         this.connectWebSocket(serverUrl);
@@ -548,32 +558,50 @@ class P2PChat {
             avatar: 'https://api.dicebear.com/7.x/adventurer/svg?seed=unknown' 
         };
         
-        // 头像
-        if (!isOwn) {
-            const avatar = document.createElement('img');
-            avatar.className = 'message-avatar';
-            avatar.src = userInfo.avatar;
-            avatar.alt = userInfo.name;
-            messageWrapper.appendChild(avatar);
-        }
-        
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${isOwn ? 'message-own' : 'message-other'}`;
-        
         const time = new Date(data.timestamp).toLocaleTimeString('zh-CN', { 
             hour: '2-digit', 
             minute: '2-digit' 
         });
         
-        messageDiv.innerHTML = `
-            <div class="message-text">${this.escapeHtml(data.text)}</div>
-            <div class="message-meta">
-                ${!isOwn ? `<span class="message-name">${this.escapeHtml(userInfo.name)}</span>` : ''}
-                <span class="message-time">${time}</span>
-            </div>
-        `;
+        // 为他人消息创建头部信息（头像 + 名字 + 时间）
+        if (!isOwn) {
+            const messageHeader = document.createElement('div');
+            messageHeader.className = 'message-header';
+            
+            const avatar = document.createElement('img');
+            avatar.className = 'message-avatar';
+            avatar.src = userInfo.avatar;
+            avatar.alt = userInfo.name;
+            
+            const headerText = document.createElement('div');
+            headerText.className = 'message-header-text';
+            headerText.innerHTML = `<span class="message-name">${userInfo.name}</span><span class="message-time">${time}</span>`;
+            
+            messageHeader.appendChild(avatar);
+            messageHeader.appendChild(headerText);
+            messageWrapper.appendChild(messageHeader);
+        }
         
-        messageWrapper.appendChild(messageDiv);
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${isOwn ? 'message-own' : 'message-other'}`;
+        
+        // 消息文本
+        const textDiv = document.createElement('div');
+        textDiv.className = 'message-text';
+        textDiv.textContent = data.text;
+        messageDiv.appendChild(textDiv);
+        
+        // 自己的消息时间放在气泡外面
+        if (isOwn) {
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'message-timestamp';
+            timeDiv.textContent = time;
+            messageWrapper.appendChild(messageDiv);
+            messageWrapper.appendChild(timeDiv);
+        } else {
+            messageWrapper.appendChild(messageDiv);
+        }
+        
         this.elements.chatMessages.appendChild(messageWrapper);
         this.elements.chatMessages.scrollTop = this.elements.chatMessages.scrollHeight;
     }
