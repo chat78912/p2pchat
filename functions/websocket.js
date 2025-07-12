@@ -88,7 +88,7 @@ function handleWebSocket(webSocket, env) {
           if (result) {
             currentUser = data.userId;
             currentRoom = data.roomId;
-            await updateUserLastSeen(data.userId, env, connectionMode, data.localIP, data.networkSegment);
+            await updateUserLastSeen(data.userId, env, connectionMode);
           }
           break;
           
@@ -104,17 +104,17 @@ function handleWebSocket(webSocket, env) {
         case 'answer':
         case 'ice-candidate':
           await handleRTCMessage(webSocket, data, env, connectionMode);
-          await updateUserLastSeen(data.userId, env, connectionMode, userLocalIP, userNetworkSegment);
+          await updateUserLastSeen(data.userId, env, connectionMode);
           break;
           
         case 'message':
           await handleChatMessage(webSocket, data, env, connectionMode);
-          await updateUserLastSeen(data.userId, env, connectionMode, userLocalIP, userNetworkSegment);
+          await updateUserLastSeen(data.userId, env, connectionMode);
           break;
           
         case 'poll_messages':
           await handlePollMessages(webSocket, data, env, connectionMode);
-          await updateUserLastSeen(data.userId, env, connectionMode, userLocalIP, userNetworkSegment);
+          await updateUserLastSeen(data.userId, env, connectionMode);
           break;
           
         case 'heartbeat':
@@ -489,26 +489,20 @@ const InternetModeHandler = {
 // ==================== 核心处理函数 ====================
 
 async function handleHeartbeat(webSocket, data, env, connectionMode = CONNECTION_MODES.LAN) {
-  const { userId, roomId, timestamp, localIP, networkSegment } = data;
+  const { userId, roomId, timestamp } = data;
   const config = MODE_CONFIG[connectionMode];
   
   console.log(`[${connectionMode.toUpperCase()}] Received heartbeat from ${userId} at ${timestamp}`);
   
   // 更新用户最后活跃时间
-  await updateUserLastSeen(userId, env, connectionMode, localIP, networkSegment);
-  
-  // 局域网模式：更新网络段信息
-  if (connectionMode === CONNECTION_MODES.LAN && networkSegment) {
-    await updateNetworkSegment(env, networkSegment, userId);
-  }
+  await updateUserLastSeen(userId, env, connectionMode);
   
   // 发送心跳响应
   safeWebSocketSend(webSocket, {
     type: 'heartbeat_ack',
     timestamp: Date.now(),
     mode: connectionMode,
-    interval: config.heartbeatInterval,
-    networkSegment: networkSegment
+    interval: config.heartbeatInterval
   });
   
   // 清理过期用户
@@ -518,7 +512,7 @@ async function handleHeartbeat(webSocket, data, env, connectionMode = CONNECTION
   }
 }
 
-async function updateUserLastSeen(userId, env, connectionMode = CONNECTION_MODES.LAN, localIP = null, networkSegment = null) {
+async function updateUserLastSeen(userId, env, connectionMode = CONNECTION_MODES.LAN) {
   if (!userId) return;
   
   try {
@@ -529,10 +523,6 @@ async function updateUserLastSeen(userId, env, connectionMode = CONNECTION_MODES
       const userData = JSON.parse(userDataStr);
       userData.lastSeen = Date.now();
       userData.connectionMode = connectionMode;
-      
-      // 更新网络信息
-      if (localIP) userData.localIP = localIP;
-      if (networkSegment) userData.networkSegment = networkSegment;
       
       const config = MODE_CONFIG[connectionMode];
       const ttl = Math.floor(config.reconnectWindow / 1000);
@@ -616,6 +606,14 @@ async function cleanupExpiredUsersWithConfig(roomId, env, userTimeout) {
 
 async function handleJoinRoom(webSocket, data, env, connectionMode = CONNECTION_MODES.LAN) {
   const handler = connectionMode === CONNECTION_MODES.LAN ? LANModeHandler : InternetModeHandler;
+  
+  // 如果是局域网模式且使用默认房间，自动分配基于连接的房间
+  if (data.mode === 'lan' && data.roomId === 'lan_auto_default') {
+    // 从WebSocket连接获取客户端信息
+    const clientInfo = extractClientInfo(webSocket);
+    data.roomId = generateLANRoomId(clientInfo);
+    console.log(`Auto-assigned LAN room: ${data.roomId} for client: ${clientInfo.ip}`);
+  }
   
   // 先进行模式特定的验证
   const validationResult = await handler.processJoinRoom(webSocket, data, env);
@@ -976,4 +974,26 @@ function safeWebSocketSend(webSocket, data) {
   } catch (error) {
     console.error('Error sending WebSocket message:', error);
   }
+}
+
+// 从WebSocket连接提取客户端信息
+function extractClientInfo(webSocket) {
+  // 注意：在Cloudflare Workers环境中，可能需要不同的方法获取客户端IP
+  // 这里使用通用的方法，具体实现可能需要根据环境调整
+  const clientInfo = {
+    ip: 'unknown',
+    userAgent: 'unknown'
+  };
+  
+  // 尝试从请求头获取IP（如果可用）
+  // 在实际环境中，可能需要从 request.headers 或其他地方获取
+  
+  return clientInfo;
+}
+
+// 基于客户端信息生成局域网房间ID
+function generateLANRoomId(clientInfo) {
+  // 简化版：为所有局域网用户使用同一个房间
+  // 在实际应用中，可以基于IP段或其他信息分配不同房间
+  return 'lan_auto_main';
 }

@@ -11,8 +11,6 @@ class P2PChat {
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.isLeavingRoom = false;
-        this.localIPAddress = null;
-        this.networkSegment = null;
         this.isAutoConnecting = false; // 新增：是否正在自动连接
         this.hasConnectedPeers = false; // 新增：是否有连接的用户
         
@@ -40,8 +38,6 @@ class P2PChat {
             lanMode: document.getElementById('lanMode'),
             internetMode: document.getElementById('internetMode'),
             networkInfo: document.getElementById('networkInfo'),
-            localIP: document.getElementById('localIP'),
-            networkSegment: document.getElementById('networkSegment'),
             autoStatus: document.getElementById('autoStatus'), // 新增：自动连接状态
             modeSection: document.getElementById('modeSection') // 新增：模式选择区域
         };
@@ -146,9 +142,9 @@ class P2PChat {
         this.elements.joinBtn.style.display = 'none';
         this.elements.leaveBtn.style.display = 'none';
         
-        // 显示网络信息
+        // 隐藏网络信息（不再需要显示IP相关信息）
         if (this.elements.networkInfo) {
-            this.elements.networkInfo.style.display = 'block';
+            this.elements.networkInfo.style.display = 'none';
         }
         
         // 启用消息输入（自动连接后）
@@ -173,7 +169,7 @@ class P2PChat {
         this.elements.sendBtn.disabled = true;
     }
 
-    // 新增：自动连接到局域网（改进的错误处理）
+    // 新增：自动连接到局域网（简化版，不依赖IP检测）
     async autoConnectToLAN() {
         if (this.isAutoConnecting || this.connectionMode !== 'lan') {
             return;
@@ -185,49 +181,26 @@ class P2PChat {
         
         const attemptConnection = async () => {
             try {
-                this.updateAutoStatus('🔍 正在检测网络环境...', 'loading');
+                this.updateAutoStatus('🔍 正在连接局域网...', 'loading');
                 
-                // 检测本地IP地址（使用改进的多方法检测）
-                const localIP = await this.detectLocalIP();
-                
-                if (!localIP) {
-                    // 如果自动检测失败，显示手动输入界面
-                    const manualIP = await this.showIPInputDialog();
-                    if (!manualIP) {
-                        throw new Error('无法获取本地IP地址');
-                    }
-                    this.localIPAddress = manualIP;
-                    // 保存用户输入的IP供下次使用
-                    localStorage.setItem('p2pchat_fixed_ip', manualIP);
-                } else {
-                    this.localIPAddress = localIP;
-                }
-
-                this.networkSegment = this.getNetworkSegment(this.localIPAddress);
-                
-                // 更新网络信息显示
-                this.updateNetworkDisplay();
-                
-                this.updateAutoStatus('🌐 正在连接到局域网房间...', 'loading');
-                
-                // 使用网络段作为房间ID自动加入
-                this.currentRoom = `lan_auto_${this.networkSegment.replace(/\./g, '_')}`;
+                // 不再检测IP，直接使用默认房间
+                // 让服务器根据连接信息自动分配
+                this.currentRoom = 'lan_auto_default';
                 
                 if (!this.isConnected) {
                     this.updateAutoStatus('⚠️ 正在连接服务器，请稍候...', 'warning');
-                    // 等待WebSocket连接，设置重试机制
+                    // 等待WebSocket连接
                     await this.waitForWebSocketConnection();
                 }
 
-                console.log(`Auto-joining LAN room: ${this.currentRoom} with IP ${localIP}`);
+                console.log(`Auto-joining LAN room: ${this.currentRoom}`);
                 
                 this.ws.send(JSON.stringify({
                     type: 'join_room',
                     roomId: this.currentRoom,
                     userId: this.userId,
-                    localIP: localIP,
-                    networkSegment: this.networkSegment,
-                    autoDetected: true
+                    autoDetected: true,
+                    mode: 'lan'
                 }));
 
                 this.updateAutoStatus('✅ 已连接到局域网，等待发现其他用户...');
@@ -460,15 +433,6 @@ class P2PChat {
         }
     }
 
-    // 新增：更新网络信息显示
-    updateNetworkDisplay() {
-        if (this.elements.localIP) {
-            this.elements.localIP.textContent = this.localIPAddress || '检测中...';
-        }
-        if (this.elements.networkSegment) {
-            this.elements.networkSegment.textContent = this.networkSegment || '检测中...';
-        }
-    }
 
     // 改进：更新自动连接状态（支持不同状态样式）
     updateAutoStatus(message, type = 'normal') {
@@ -1768,9 +1732,7 @@ class P2PChat {
                     type: 'heartbeat',
                     userId: this.userId,
                     roomId: this.currentRoom,
-                    timestamp: Date.now(),
-                    localIP: this.localIPAddress,
-                    networkSegment: this.networkSegment
+                    timestamp: Date.now()
                 }));
             }
         }, 30000);
@@ -1793,9 +1755,7 @@ class P2PChat {
         this.ws.send(JSON.stringify({
             type: 'join_room',
             roomId: this.currentRoom,
-            userId: this.userId,
-            localIP: this.localIPAddress,
-            networkSegment: this.networkSegment
+            userId: this.userId
         }));
 
         this.startPolling();
@@ -1872,9 +1832,7 @@ class P2PChat {
         this.ws.send(JSON.stringify({
             type: 'join_room',
             roomId: roomId,
-            userId: this.userId,
-            localIP: this.localIPAddress,
-            networkSegment: this.networkSegment
+            userId: this.userId
         }));
 
         this.elements.joinBtn.style.display = 'none';
@@ -1901,8 +1859,6 @@ class P2PChat {
 
         this.closePeerConnections();
         this.currentRoom = null;
-        this.localIPAddress = null;
-        this.networkSegment = null;
         this.hasConnectedPeers = false;
         
         this.stopPolling();
