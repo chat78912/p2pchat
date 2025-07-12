@@ -995,5 +995,5 @@ function extractClientInfo(webSocket) {
 function generateLANRoomId(clientInfo) {
   // 简化版：为所有局域网用户使用同一个房间
   // 在实际应用中，可以基于IP段或其他信息分配不同房间
-  return 'lan_auto_main';
+  return 'lan_auto_default';
 }

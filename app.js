@@ -147,9 +147,9 @@ class P2PChat {
             this.elements.networkInfo.style.display = 'none';
         }
         
-        // 启用消息输入（自动连接后）
-        this.elements.messageInput.disabled = false;
-        this.elements.sendBtn.disabled = false;
+        // 消息输入初始状态为禁用，连接后自动启用
+        this.elements.messageInput.disabled = true;
+        this.elements.sendBtn.disabled = true;
     }
 
     // 修改：显示公网模式UI
@@ -1925,6 +1925,11 @@ class P2PChat {
         console.log('Room joined:', data);
         const existingUsers = data.users.length;
         
+        // 启用消息输入
+        this.elements.messageInput.disabled = false;
+        this.elements.sendBtn.disabled = false;
+        this.elements.messageInput.placeholder = "输入消息...";
+        
         if (this.connectionMode === 'lan') {
             if (existingUsers > 0) {
                 this.updateAutoStatus(`✅ 发现 ${existingUsers} 个同网段用户，正在建立连接...`);
@@ -1948,6 +1953,12 @@ class P2PChat {
     handleUserJoined(data) {
         if (data.userId !== this.userId) {
             console.log(`New user joined: ${data.userId}`);
+            
+            // 确保消息输入已启用
+            this.elements.messageInput.disabled = false;
+            this.elements.sendBtn.disabled = false;
+            this.elements.messageInput.placeholder = "输入消息...";
+            
             if (this.connectionMode === 'lan') {
                 this.updateAutoStatus(`🔗 发现新用户，正在建立连接...`);
             } else {
