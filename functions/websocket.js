@@ -772,24 +772,11 @@ async function handleRTCMessage(webSocket, data, env, connectionMode = CONNECTIO
   console.log(`[${connectionMode.toUpperCase()}] Forwarding ${type} signal from ${data.userId} to ${targetUserId}`);
   
   try {
-    // 打印当前活跃连接状态
-    console.log(`🔍 Active connections: ${Array.from(activeConnections.keys()).join(', ')}`);
-    console.log(`🎯 Looking for target user: ${targetUserId}`);
+    // ⚠️ 在Cloudflare Pages环境中，activeConnections可能为空或不可靠
+    // 直接使用存储系统进行消息传递
+    console.log(`📦 Storing RTC ${type} message for ${targetUserId} (Cloudflare Pages mode)`);
     
-    // 优先尝试直接发送给活跃的WebSocket连接
-    const targetWebSocket = activeConnections.get(targetUserId);
-    if (targetWebSocket && targetWebSocket.readyState === 1) {
-      // 直接发送消息
-      safeWebSocketSend(targetWebSocket, data);
-      console.log(`🚀 RTC ${type} message sent directly to ${targetUserId} via WebSocket (${connectionMode} mode)`);
-      return;
-    } else if (targetWebSocket) {
-      console.log(`⚠️ Target WebSocket for ${targetUserId} exists but state is ${targetWebSocket.readyState}`);
-    } else {
-      console.log(`❌ No active WebSocket connection found for ${targetUserId}`);
-    }
-    
-    // 如果没有活跃连接，检查用户是否存在并排队消息
+    // 检查目标用户是否存在
     const userKey = `user:${targetUserId}`;
     const userDataStr = await env['p2pchat-storage'].get(userKey);
     
@@ -799,10 +786,19 @@ async function handleRTCMessage(webSocket, data, env, connectionMode = CONNECTIO
       const config = MODE_CONFIG[connectionMode];
       
       if (now - userData.lastSeen < config.userTimeout) {
+        // 直接存储消息，目标用户通过轮询获取
         await addPendingMessage(env, targetUserId, data, connectionMode);
-        console.log(`📦 RTC ${type} message queued for ${targetUserId} (${connectionMode} mode) - no active connection`);
+        console.log(`✅ RTC ${type} message queued for ${targetUserId} (${connectionMode} mode)`);
+        
+        // 发送确认给发送者
+        safeWebSocketSend(webSocket, {
+          type: 'rtc_forwarded',
+          targetUserId: targetUserId,
+          originalType: type,
+          timestamp: Date.now()
+        });
       } else {
-        console.log(`❌ Target user ${targetUserId} is inactive (${connectionMode} mode), not sending message`);
+        console.log(`❌ Target user ${targetUserId} is inactive (${connectionMode} mode)`);
         safeWebSocketSend(webSocket, {
           type: 'error',
           message: 'Target user is offline'
@@ -953,20 +949,11 @@ async function broadcastToRoom(roomId, message, env, excludeUserId = null) {
     const connectionMode = roomData.mode || CONNECTION_MODES.LAN;
     const config = MODE_CONFIG[connectionMode];
     
-    let directSent = 0;
     let queued = 0;
     
     for (const userId of roomData.users) {
       if (userId !== excludeUserId) {
-        // 优先尝试直接发送
-        const userWebSocket = activeConnections.get(userId);
-        if (userWebSocket && userWebSocket.readyState === 1) {
-          safeWebSocketSend(userWebSocket, message);
-          directSent++;
-          continue;
-        }
-        
-        // 如果没有活跃连接，检查用户状态并排队
+        // 在Cloudflare Pages环境中，直接排队所有消息
         const userKey = `user:${userId}`;
         const userDataStr = await env['p2pchat-storage'].get(userKey);
         
@@ -980,7 +967,7 @@ async function broadcastToRoom(roomId, message, env, excludeUserId = null) {
       }
     }
     
-    console.log(`[${connectionMode.toUpperCase()}] Broadcasted to room ${roomId}: ${directSent} direct, ${queued} queued`);
+    console.log(`[${connectionMode.toUpperCase()}] Broadcasted to room ${roomId}: ${queued} messages queued`);
   } catch (error) {
     console.error('Error broadcasting to room:', error);
   }
@@ -1013,24 +1000,38 @@ async function addPendingMessage(env, userId, message, connectionMode = CONNECTI
 
 async function cleanupInactiveConnections(roomId, env) {
   try {
+    // 在Cloudflare Pages环境中，基于最后活跃时间清理用户
     const roomKey = `room:${roomId}`;
     const roomDataStr = await env['p2pchat-storage'].get(roomKey);
     
     if (!roomDataStr) return;
     
     const roomData = JSON.parse(roomDataStr);
-    const activeUserIds = Array.from(activeConnections.keys());
+    const now = Date.now();
     const originalUserCount = roomData.users.length;
     
-    // 只保留有活跃WebSocket连接的用户
-    roomData.users = roomData.users.filter(userId => {
-      const hasActiveConnection = activeUserIds.includes(userId);
-      if (!hasActiveConnection) {
-        console.log(`🧹 Removing inactive user ${userId} from room ${roomId}`);
+    // 检查每个用户的最后活跃时间
+    const activeUsers = [];
+    for (const userId of roomData.users) {
+      const userKey = `user:${userId}`;
+      const userDataStr = await env['p2pchat-storage'].get(userKey);
+      
+      if (userDataStr) {
+        const userData = JSON.parse(userDataStr);
+        // 如果用户在最近60秒内活跃，保留他们
+        if (now - userData.lastSeen < 60000) {
+          activeUsers.push(userId);
+        } else {
+          console.log(`🧹 Removing inactive user ${userId} from room ${roomId} (last seen: ${new Date(userData.lastSeen).toISOString()})`);
+          delete roomData.connections[userId];
+        }
+      } else {
+        console.log(`🧹 Removing user ${userId} from room ${roomId} (no user data)`);
         delete roomData.connections[userId];
       }
-      return hasActiveConnection;
-    });
+    }
+    
+    roomData.users = activeUsers;
     
     if (roomData.users.length !== originalUserCount) {
       console.log(`🧹 Cleaned up room ${roomId}: ${originalUserCount} -> ${roomData.users.length} users`);

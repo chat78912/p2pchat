@@ -1896,9 +1896,10 @@ class P2PChat {
             clearInterval(this.pollInterval);
         }
         
+        // 减少轮询间隔以加快RTC消息传递（Cloudflare Pages环境优化）
         this.pollInterval = setInterval(() => {
             this.pollMessages();
-        }, 2000);
+        }, 500);
         
         this.pollMessages();
     }
