@@ -41,6 +41,9 @@ const NETWORK_CONFIG = {
   NETWORK_TIMEOUT: 1800000 // 30分钟
 };
 
+// 存储活跃的WebSocket连接
+const activeConnections = new Map();
+
 export async function onRequest(context) {
   const { request, env } = context;
   
@@ -88,12 +91,19 @@ function handleWebSocket(webSocket, env) {
           if (result) {
             currentUser = data.userId;
             currentRoom = data.roomId;
+            // 注册WebSocket连接
+            activeConnections.set(data.userId, webSocket);
+            console.log(`✅ Registered WebSocket connection for user ${data.userId}`);
             await updateUserLastSeen(data.userId, env, connectionMode);
           }
           break;
           
         case 'leave_room':
           await handleLeaveRoom(webSocket, data, env, connectionMode);
+          if (currentUser) {
+            activeConnections.delete(currentUser);
+            console.log(`❌ Removed WebSocket connection for user ${currentUser}`);
+          }
           currentUser = null;
           currentRoom = null;
           userLocalIP = null;
@@ -142,8 +152,12 @@ function handleWebSocket(webSocket, env) {
 
   webSocket.addEventListener('close', async (event) => {
     console.log(`WebSocket closed for user: ${currentUser}, code: ${event.code}`);
-    if (currentUser && currentRoom) {
-      await handleUserDisconnect(currentUser, currentRoom, env, connectionMode);
+    if (currentUser) {
+      activeConnections.delete(currentUser);
+      console.log(`❌ Removed WebSocket connection for user ${currentUser} (connection closed)`);
+      if (currentRoom) {
+        await handleUserDisconnect(currentUser, currentRoom, env, connectionMode);
+      }
     }
   });
 
@@ -755,6 +769,16 @@ async function handleRTCMessage(webSocket, data, env, connectionMode = CONNECTIO
   console.log(`[${connectionMode.toUpperCase()}] Forwarding ${type} signal from ${data.userId} to ${targetUserId}`);
   
   try {
+    // 优先尝试直接发送给活跃的WebSocket连接
+    const targetWebSocket = activeConnections.get(targetUserId);
+    if (targetWebSocket && targetWebSocket.readyState === 1) {
+      // 直接发送消息
+      safeWebSocketSend(targetWebSocket, data);
+      console.log(`🚀 RTC ${type} message sent directly to ${targetUserId} via WebSocket (${connectionMode} mode)`);
+      return;
+    }
+    
+    // 如果没有活跃连接，检查用户是否存在并排队消息
     const userKey = `user:${targetUserId}`;
     const userDataStr = await env['p2pchat-storage'].get(userKey);
     
@@ -765,7 +789,7 @@ async function handleRTCMessage(webSocket, data, env, connectionMode = CONNECTIO
       
       if (now - userData.lastSeen < config.userTimeout) {
         await addPendingMessage(env, targetUserId, data, connectionMode);
-        console.log(`✅ RTC ${type} message queued for ${targetUserId} (${connectionMode} mode)`);
+        console.log(`📦 RTC ${type} message queued for ${targetUserId} (${connectionMode} mode) - no active connection`);
       } else {
         console.log(`❌ Target user ${targetUserId} is inactive (${connectionMode} mode), not sending message`);
         safeWebSocketSend(webSocket, {
@@ -918,8 +942,20 @@ async function broadcastToRoom(roomId, message, env, excludeUserId = null) {
     const connectionMode = roomData.mode || CONNECTION_MODES.LAN;
     const config = MODE_CONFIG[connectionMode];
     
+    let directSent = 0;
+    let queued = 0;
+    
     for (const userId of roomData.users) {
       if (userId !== excludeUserId) {
+        // 优先尝试直接发送
+        const userWebSocket = activeConnections.get(userId);
+        if (userWebSocket && userWebSocket.readyState === 1) {
+          safeWebSocketSend(userWebSocket, message);
+          directSent++;
+          continue;
+        }
+        
+        // 如果没有活跃连接，检查用户状态并排队
         const userKey = `user:${userId}`;
         const userDataStr = await env['p2pchat-storage'].get(userKey);
         
@@ -927,12 +963,13 @@ async function broadcastToRoom(roomId, message, env, excludeUserId = null) {
           const userData = JSON.parse(userDataStr);
           if (now - userData.lastSeen < config.userTimeout) {
             await addPendingMessage(env, userId, message, connectionMode);
+            queued++;
           }
         }
       }
     }
     
-    console.log(`[${connectionMode.toUpperCase()}] Broadcasted message to room ${roomId}`);
+    console.log(`[${connectionMode.toUpperCase()}] Broadcasted to room ${roomId}: ${directSent} direct, ${queued} queued`);
   } catch (error) {
     console.error('Error broadcasting to room:', error);
   }
