@@ -5,571 +5,264 @@
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f0f0f0;
     height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    overflow: hidden;
 }
 
 .chat-container {
-    width: 90%;
-    max-width: 800px;
-    height: 90vh;
-    background: rgba(255, 255, 255, 0.95);
-    border-radius: 20px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    height: 100vh;
+    background: #fff;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    backdrop-filter: blur(10px);
 }
 
+/* 紧凑的头部 */
 .chat-header {
-    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    background: #2c3e50;
     color: white;
-    padding: 20px;
-    text-align: center;
-    position: relative;
+    padding: 8px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.chat-header h1 {
+    font-size: 16px;
+    font-weight: 500;
+    margin: 0;
 }
 
 .connection-status {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    padding: 5px 15px;
-    border-radius: 15px;
-    font-size: 12px;
-    font-weight: bold;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
 }
 
 .status-disconnected {
-    background: rgba(255, 255, 255, 0.2);
-    color: #ffeb3b;
+    background: rgba(255, 193, 7, 0.2);
+    color: #ffc107;
 }
 
 .status-connected {
-    background: rgba(76, 175, 80, 0.8);
-    color: white;
+    background: rgba(76, 175, 80, 0.2);
+    color: #4caf50;
 }
 
-.status-p2p {
-    background: rgba(76, 175, 80, 1);
-    color: white;
-    animation: pulse 2s infinite;
+.status-error {
+    background: rgba(244, 67, 54, 0.2);
+    color: #f44336;
 }
 
-@keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
-}
-
+/* 紧凑的房间控制区 */
 .room-section {
-    padding: 20px;
-    background: #f8f9ff;
+    padding: 8px 15px;
+    background: #f8f9fa;
     border-bottom: 1px solid #e0e0e0;
+    flex-shrink: 0;
 }
 
 .connection-mode {
     display: flex;
     gap: 10px;
-    margin-bottom: 15px;
-    justify-content: center;
+    margin-bottom: 8px;
 }
 
 .mode-btn {
-    padding: 10px 25px;
-    background: #f0f0f0;
-    border: 2px solid #e0e0e0;
-    border-radius: 25px;
+    flex: 1;
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
-    font-weight: bold;
-    transition: all 0.3s;
-    color: #666;
-    position: relative;
+    font-size: 13px;
+    transition: all 0.2s;
 }
 
 .mode-btn.active {
-    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    background: #2c3e50;
     color: white;
-    border-color: #4facfe;
-    transform: translateY(-2px);
-    box-shadow: 0 6px 15px rgba(79, 172, 254, 0.4);
+    border-color: #2c3e50;
 }
 
 .mode-btn:hover:not(.active) {
-    background: #e8e8e8;
-    border-color: #ccc;
-    transform: translateY(-1px);
+    background: #f0f0f0;
 }
 
-/* 新增：自动连接信息样式 */
-.auto-connect-info {
-    margin-bottom: 15px;
-    background: linear-gradient(135deg, rgba(40, 167, 69, 0.1) 0%, rgba(32, 201, 151, 0.1) 100%);
-    border: 1px solid rgba(40, 167, 69, 0.2);
-    border-radius: 15px;
-    padding: 15px;
-    animation: fadeIn 0.3s ease-in;
+.auto-connect-info,
+.manual-connect-info {
+    margin-bottom: 8px;
 }
 
 .auto-status {
-    text-align: center;
-    font-size: 14px;
-    font-weight: bold;
-    color: #28a745;
-    margin-bottom: 10px;
-    padding: 8px 15px;
-    background: rgba(40, 167, 69, 0.1);
-    border-radius: 10px;
-    border: 1px solid rgba(40, 167, 69, 0.2);
-}
-
-.manual-connect-info {
-    margin-bottom: 15px;
-    background: rgba(79, 172, 254, 0.1);
-    border: 1px solid rgba(79, 172, 254, 0.2);
-    border-radius: 15px;
-    padding: 15px;
-    animation: fadeIn 0.3s ease-in;
+    font-size: 13px;
+    color: #666;
+    padding: 4px 0;
 }
 
 .room-controls {
     display: flex;
-    gap: 10px;
-    margin-bottom: 15px;
-    flex-wrap: wrap;
-    justify-content: center;
+    gap: 8px;
 }
 
 .room-controls input {
     flex: 1;
-    min-width: 200px;
-    padding: 12px 15px;
-    border: 2px solid #e0e0e0;
-    border-radius: 25px;
-    outline: none;
-    font-size: 14px;
-    transition: all 0.3s;
-}
-
-.room-controls input:focus {
-    border-color: #4facfe;
-    box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
-}
-
-.btn {
-    padding: 12px 25px;
-    border: none;
-    border-radius: 25px;
-    cursor: pointer;
-    font-weight: bold;
-    transition: all 0.3s;
-    font-size: 14px;
-    position: relative;
-    overflow: hidden;
-}
-
-.btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none !important;
-}
-
-.btn-primary {
-    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(79, 172, 254, 0.4);
-}
-
-.btn-primary:active {
-    transform: translateY(0);
-}
-
-.btn-secondary {
-    background: #6c757d;
-    color: white;
-}
-
-.btn-secondary:hover:not(:disabled) {
-    background: #5a6268;
-    transform: translateY(-2px);
-}
-
-/* 新增：自动检测按钮特殊样式 */
-#autoDetectBtn {
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-    font-size: 15px;
-    padding: 14px 30px;
-    position: relative;
-}
-
-#autoDetectBtn:hover:not(:disabled) {
-    box-shadow: 0 8px 20px rgba(40, 167, 69, 0.4);
-}
-
-#autoDetectBtn:disabled {
-    background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 13px;
 }
 
 .room-info {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    font-size: 14px;
-    color: #666;
-    margin-bottom: 10px;
-}
-
-/* 新增：网络信息样式 */
-.network-info {
-    background: rgba(40, 167, 69, 0.1);
-    border: 1px solid rgba(40, 167, 69, 0.2);
-    border-radius: 10px;
-    padding: 10px;
-    margin-top: 10px;
-}
-
-.network-detail {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 5px;
     font-size: 12px;
-}
-
-.network-detail:last-child {
-    margin-bottom: 0;
-}
-
-.network-label {
     color: #666;
-    font-weight: bold;
 }
 
-.network-value {
-    color: #28a745;
-    font-family: monospace;
-    background: rgba(40, 167, 69, 0.1);
-    padding: 2px 8px;
-    border-radius: 8px;
-}
-
+/* 主聊天区域 - 占据大部分空间 */
 .chat-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    background: linear-gradient(to bottom, #f8f9ff, #fff);
+    padding: 15px;
+    background: #ffffff;
+    min-height: 0;
 }
 
-/* 自定义滚动条 */
+.message {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    max-width: 70%;
+    word-wrap: break-word;
+}
+
+.message-system {
+    background: #f0f0f0;
+    color: #666;
+    font-size: 12px;
+    text-align: center;
+    max-width: 100%;
+    margin: 5px 0;
+}
+
+.message-own {
+    background: #2c3e50;
+    color: white;
+    margin-left: auto;
+}
+
+.message-other {
+    background: #e3f2fd;
+    color: #333;
+}
+
+.message-info {
+    font-size: 11px;
+    margin-bottom: 4px;
+    opacity: 0.7;
+}
+
+.message-text {
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+/* 输入区域 */
+.chat-input {
+    padding: 10px 15px;
+    background: #f8f9fa;
+    border-top: 1px solid #e0e0e0;
+    flex-shrink: 0;
+}
+
+.input-group {
+    display: flex;
+    gap: 8px;
+}
+
+.input-group input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    outline: none;
+}
+
+.input-group input:focus {
+    border-color: #2c3e50;
+}
+
+/* 按钮样式 */
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-primary {
+    background: #2c3e50;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #34495e;
+}
+
+.btn-primary:disabled {
+    background: #95a5a6;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background: #ecf0f1;
+    color: #2c3e50;
+}
+
+.btn-secondary:hover {
+    background: #bdc3c7;
+}
+
+/* 滚动条美化 */
 .chat-messages::-webkit-scrollbar {
     width: 6px;
 }
 
 .chat-messages::-webkit-scrollbar-track {
     background: #f1f1f1;
-    border-radius: 3px;
 }
 
 .chat-messages::-webkit-scrollbar-thumb {
-    background: #c1c1c1;
+    background: #888;
     border-radius: 3px;
 }
 
 .chat-messages::-webkit-scrollbar-thumb:hover {
-    background: #a1a1a1;
+    background: #555;
 }
 
-.message {
-    max-width: 70%;
-    padding: 12px 18px;
-    border-radius: 18px;
-    word-wrap: break-word;
-    animation: fadeIn 0.3s ease-in;
-    position: relative;
-}
-
-.message-sent {
-    align-self: flex-end;
-    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    color: white;
-    box-shadow: 0 2px 10px rgba(79, 172, 254, 0.3);
-}
-
-.message-received {
-    align-self: flex-start;
-    background: #f1f3f4;
-    color: #333;
-    border: 1px solid #e0e0e0;
-}
-
-.message-system {
-    align-self: center;
-    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
-    color: #856404;
-    font-size: 13px;
-    padding: 10px 15px;
-    border: 1px solid #ffeaa7;
-    max-width: 90%;
-    text-align: center;
-}
-
-.message-time {
-    font-size: 10px;
-    opacity: 0.7;
-    margin-top: 5px;
-    text-align: right;
-}
-
-.message-sent .message-time {
-    color: rgba(255, 255, 255, 0.8);
-}
-
-.chat-input {
-    padding: 20px;
-    background: #f8f9ff;
-    border-top: 1px solid #e0e0e0;
-}
-
-.input-group {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
-
-.input-group input {
-    flex: 1;
-    padding: 15px 20px;
-    border: 2px solid #e0e0e0;
-    border-radius: 25px;
-    outline: none;
-    font-size: 16px;
-    transition: all 0.3s;
-    background: white;
-}
-
-.input-group input:focus {
-    border-color: #4facfe;
-    box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
-}
-
-.input-group input:disabled {
-    background: #f5f5f5;
-    color: #999;
-}
-
-@keyframes fadeIn {
-    from { 
-        opacity: 0; 
-        transform: translateY(10px); 
-    }
-    to { 
-        opacity: 1; 
-        transform: translateY(0); 
-    }
-}
-
-/* 新增：重试按钮样式 */
-.retry-btn {
-    background: linear-gradient(135deg, #fd7e14 0%, #e67e22 100%);
-    color: white;
-    border: none;
-    border-radius: 20px;
-    padding: 10px 25px;
-    font-size: 14px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.3s;
-    margin: 10px auto;
-    display: block;
-}
-
-.retry-btn:hover {
-    background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(230, 126, 34, 0.4);
-}
-
-.retry-btn:active {
-    transform: translateY(0);
-}
-
-/* 改进自动状态样式 */
-.auto-status {
-    text-align: center;
-    font-size: 14px;
-    font-weight: bold;
-    color: #28a745;
-    margin-bottom: 10px;
-    padding: 8px 15px;
-    background: rgba(40, 167, 69, 0.1);
-    border-radius: 10px;
-    border: 1px solid rgba(40, 167, 69, 0.2);
-    transition: all 0.3s ease;
-}
-
-/* 错误状态样式 */
-.auto-status.error {
-    color: #dc3545;
-    background: rgba(220, 53, 69, 0.1);
-    border-color: rgba(220, 53, 69, 0.2);
-}
-
-/* 警告状态样式 */
-.auto-status.warning {
-    color: #fd7e14;
-    background: rgba(253, 126, 20, 0.1);
-    border-color: rgba(253, 126, 20, 0.2);
-}
-
-/* 加载动画增强 */
-.auto-status.loading::after {
-    content: "";
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    margin-left: 8px;
-    border: 2px solid transparent;
-    border-top: 2px solid currentColor;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-    .chat-container {
-        width: 95%;
-        height: 95vh;
-        border-radius: 15px;
-    }
-    
-    .connection-mode {
-        flex-direction: column;
-        gap: 8px;
+/* 响应式 */
+@media (max-width: 600px) {
+    .chat-header h1 {
+        font-size: 14px;
     }
     
     .mode-btn {
-        width: 100%;
-    }
-    
-    .room-controls {
-        flex-direction: column;
-    }
-    
-    .room-controls input {
-        min-width: unset;
+        font-size: 12px;
+        padding: 5px 10px;
     }
     
     .message {
         max-width: 85%;
-    }
-    
-    .room-info {
-        flex-direction: column;
-        gap: 5px;
-        text-align: center;
-    }
-    
-    .network-info {
-        font-size: 11px;
-    }
-    
-    .input-group {
-        gap: 8px;
-    }
-    
-    .input-group input {
-        font-size: 14px;
-        padding: 12px 16px;
-    }
-    
-    .btn {
-        padding: 10px 20px;
-        font-size: 13px;
-    }
-    
-    #autoDetectBtn {
-        padding: 12px 25px;
-        font-size: 14px;
-    }
-}
-
-@media (max-width: 480px) {
-    .chat-header {
-        padding: 15px;
-    }
-    
-    .chat-header h1 {
-        font-size: 1.5rem;
-    }
-    
-    .connection-status {
-        position: static;
-        margin-top: 10px;
-        display: inline-block;
-    }
-    
-    .room-section {
-        padding: 15px;
-    }
-    
-    .chat-messages {
-        padding: 15px;
-    }
-    
-    .chat-input {
-        padding: 15px;
-    }
-}
-
-/* 高分辨率屏幕优化 */
-@media (min-width: 1200px) {
-    .chat-container {
-        max-width: 900px;
-    }
-    
-    .message {
-        max-width: 60%;
-    }
-}
-
-/* 深色模式支持（可选） */
-@media (prefers-color-scheme: dark) {
-    .chat-container {
-        background: rgba(30, 30, 30, 0.95);
-        color: #e0e0e0;
-    }
-    
-    .room-section,
-    .chat-input {
-        background: #2a2a2a;
-        border-color: #404040;
-    }
-    
-    .chat-messages {
-        background: linear-gradient(to bottom, #2a2a2a, #1e1e1e);
-    }
-    
-    .message-received {
-        background: #404040;
-        color: #e0e0e0;
-        border-color: #555;
-    }
-    
-    .mode-desc {
-        background: rgba(79, 172, 254, 0.2);
-        border-color: rgba(79, 172, 254, 0.3);
-        color: #b0b0b0;
     }
 }

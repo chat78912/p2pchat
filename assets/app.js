@@ -124,8 +124,18 @@ class P2PChat {
     }
 
     setConnectionMode(mode) {
+        // 如果模式没有改变，不做任何操作
+        if (this.connectionMode === mode) return;
+        
         this.connectionMode = mode;
         
+        // 清空聊天记录
+        this.clearChatMessages();
+        
+        // 关闭所有P2P连接
+        this.closePeerConnections();
+        
+        // 更新UI
         document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
         
         if (mode === 'lan') {
@@ -133,10 +143,12 @@ class P2PChat {
             document.getElementById('autoConnectInfo').style.display = 'block';
             document.getElementById('manualConnectInfo').style.display = 'none';
             
+            // 先离开当前房间（如果有）
             if (this.currentRoom) {
-                this.leaveRoom();
+                this.currentRoom = null;
             }
             
+            // 立即尝试自动连接
             if (this.isConnected) {
                 this.autoConnectToLAN();
             }
@@ -145,10 +157,31 @@ class P2PChat {
             document.getElementById('autoConnectInfo').style.display = 'none';
             document.getElementById('manualConnectInfo').style.display = 'block';
             
+            // 离开当前房间
             if (this.currentRoom) {
-                this.leaveRoom();
+                this.currentRoom = null;
             }
+            
+            // 重置UI状态
+            this.elements.roomInput.style.display = 'inline-block';
+            this.elements.joinBtn.style.display = 'inline-block';
+            this.elements.leaveBtn.style.display = 'none';
+            this.elements.messageInput.disabled = true;
+            this.elements.sendBtn.disabled = true;
+            this.updateRoomInfo('未连接到房间', 0);
         }
+        
+        this.addSystemMessage(`已切换到${mode === 'lan' ? '局域网' : '公网'}模式`);
+    }
+    
+    clearChatMessages() {
+        // 保留第一条欢迎消息
+        const messages = this.elements.chatMessages.querySelectorAll('.message');
+        messages.forEach((msg, index) => {
+            if (index > 0) {  // 跳过第一条
+                msg.remove();
+            }
+        });
     }
 
     autoConnectToLAN() {
