@@ -151,8 +151,66 @@ body {
 .room-info {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     font-size: 13px;
     color: #64748b;
+}
+
+/* 用户列表 */
+.user-list-container {
+    margin-top: 12px;
+}
+
+.user-list {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.user-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px 4px 4px;
+    background: #f1f5f9;
+    border-radius: 20px;
+    font-size: 13px;
+    position: relative;
+}
+
+.user-item.user-self {
+    background: #e0f2fe;
+}
+
+.user-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.user-name {
+    color: #475569;
+}
+
+.user-status-dot {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 8px;
+    height: 8px;
+    background: #4caf50;
+    border-radius: 50%;
+    border: 2px solid #f1f5f9;
+}
+
+.user-item.user-self .user-status-dot {
+    border-color: #e0f2fe;
 }
 
 /* 聊天消息区域 */
@@ -218,7 +276,9 @@ body {
 .message-wrapper {
     display: flex;
     width: 100%;
-    margin-bottom: 4px;
+    margin-bottom: 8px;
+    align-items: flex-end;
+    gap: 8px;
 }
 
 .message-wrapper.own {
@@ -229,12 +289,32 @@ body {
     justify-content: flex-start;
 }
 
+/* 消息头像 */
+.message-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
 /* 根据内容自动调整宽度 */
 .message {
     display: inline-block;
     max-width: 70%;
     min-width: 60px;
     width: auto;
+}
+
+.message-name {
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 4px;
 }
 
 .message-text {

@@ -4,6 +4,8 @@ class P2PChat {
         this.peers = new Map();
         this.currentRoom = null;
         this.userId = null;
+        this.userInfo = null;
+        this.users = new Map(); // 存储所有用户信息
         this.isConnected = false;
         this.connectionMode = 'lan';
         this.heartbeatInterval = null;
@@ -100,6 +102,7 @@ class P2PChat {
         switch (message.type) {
             case 'joined':
                 this.userId = message.userId;
+                this.userInfo = message.userInfo || this.generateUserInfo();
                 this.handleJoinedRoom(message);
                 break;
             case 'user-joined':
@@ -107,6 +110,9 @@ class P2PChat {
                 break;
             case 'user-left':
                 this.handleUserLeft(message);
+                break;
+            case 'user-list':
+                this.updateUserList(message.users);
                 break;
             case 'offer':
                 this.handleOffer(message);
@@ -121,6 +127,18 @@ class P2PChat {
                 // Heartbeat acknowledged
                 break;
         }
+    }
+    
+    generateUserInfo() {
+        const names = ['小猫', '小狗', '小熊', '小鸟', '小鱼', '小兔', '小虎', '小龙', '小马', '小羊'];
+        const adjectives = ['快乐的', '聪明的', '可爱的', '活泼的', '温柔的', '勇敢的', '友善的', '机智的'];
+        const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57', '#FF9FF3', '#54A0FF', '#48DBFB'];
+        
+        const name = adjectives[Math.floor(Math.random() * adjectives.length)] + 
+                     names[Math.floor(Math.random() * names.length)];
+        const avatar = colors[Math.floor(Math.random() * colors.length)];
+        
+        return { name, avatar };
     }
 
     setConnectionMode(mode) {
@@ -168,7 +186,7 @@ class P2PChat {
             this.elements.leaveBtn.style.display = 'none';
             this.elements.messageInput.disabled = true;
             this.elements.sendBtn.disabled = true;
-            this.updateRoomInfo('未连接到房间', 0);
+            this.updateRoomInfo('未连接到房间');
         }
         
         this.addSystemMessage(`已切换到${mode === 'lan' ? '局域网' : '公网'}模式`);
@@ -189,9 +207,15 @@ class P2PChat {
         // 使用固定的默认房间名，让所有局域网用户能够相遇
         const defaultRoom = 'lan_auto_default';
         
+        // 生成用户信息
+        if (!this.userInfo) {
+            this.userInfo = this.generateUserInfo();
+        }
+        
         this.ws.send(JSON.stringify({
             type: 'join',
-            room: defaultRoom
+            room: defaultRoom,
+            userInfo: this.userInfo
         }));
     }
 
@@ -214,10 +238,16 @@ class P2PChat {
             this.currentRoom = null;
         }
 
+        // 生成用户信息
+        if (!this.userInfo) {
+            this.userInfo = this.generateUserInfo();
+        }
+        
         // 加入新房间
         this.ws.send(JSON.stringify({
             type: 'join',
-            room: roomId
+            room: roomId,
+            userInfo: this.userInfo
         }));
     }
 
@@ -233,15 +263,24 @@ class P2PChat {
         this.elements.messageInput.disabled = true;
         this.elements.sendBtn.disabled = true;
         
-        this.updateRoomInfo('未连接到房间', 0);
+        this.updateRoomInfo('未连接到房间');
         this.addSystemMessage('已离开房间');
     }
 
     handleJoinedRoom(data) {
         this.currentRoom = data.roomId || this.currentRoom;
         const users = data.users || [];
+        const usersInfo = data.usersInfo || {};
         
         console.log('Joined room:', this.currentRoom, 'with users:', users);
+        
+        // 更新用户列表
+        this.users.clear();
+        for (const [userId, userInfo] of Object.entries(usersInfo)) {
+            this.users.set(userId, userInfo);
+        }
+        // 添加自己
+        this.users.set(this.userId, this.userInfo);
         
         if (this.connectionMode === 'lan') {
             this.updateAutoStatus('✅ 已自动连接到局域网');
@@ -256,8 +295,8 @@ class P2PChat {
         this.elements.messageInput.disabled = false;
         this.elements.sendBtn.disabled = false;
         
-        this.updateUserCount(users.length);
-        this.addSystemMessage(`已加入房间${this.connectionMode === 'lan' ? '（局域网自动连接）' : ''}，当前 ${users.length} 人在线`);
+        this.updateUserList();
+        this.addSystemMessage(`${this.userInfo.name} 加入了房间`);
         
         // Connect to existing users
         users.forEach(userId => {
@@ -269,8 +308,15 @@ class P2PChat {
     }
 
     handleUserJoined(data) {
-        this.addSystemMessage(`用户加入房间`);
-        this.updateUserCount();
+        // 更新用户信息
+        if (data.userInfo) {
+            this.users.set(data.userId, data.userInfo);
+        }
+        
+        const userInfo = this.users.get(data.userId);
+        const userName = userInfo ? userInfo.name : '用户';
+        this.addSystemMessage(`${userName} 加入了房间`);
+        this.updateUserList();
         
         // Create peer connection for new user
         if (data.userId !== this.userId) {
@@ -279,8 +325,13 @@ class P2PChat {
     }
 
     handleUserLeft(data) {
-        this.addSystemMessage(`用户离开房间`);
-        this.updateUserCount();
+        const userInfo = this.users.get(data.userId);
+        const userName = userInfo ? userInfo.name : '用户';
+        this.addSystemMessage(`${userName} 离开了房间`);
+        
+        // 从用户列表中移除
+        this.users.delete(data.userId);
+        this.updateUserList();
         
         // Close peer connection
         if (this.peers.has(data.userId)) {
@@ -353,6 +404,8 @@ class P2PChat {
             this.addSystemMessage(`💬 数据通道已建立，可以开始聊天`);
             // 更新界面状态
             this.updateChannelStatus();
+            // 更新用户列表的连接状态
+            this.renderUserList();
         };
         
         dataChannel.onmessage = (event) => {
@@ -368,6 +421,8 @@ class P2PChat {
         dataChannel.onclose = () => {
             console.log(`Data channel closed with ${peerId}`);
             this.updateChannelStatus();
+            // 更新用户列表的连接状态
+            this.renderUserList();
         };
     }
     
@@ -424,6 +479,7 @@ class P2PChat {
         const messageData = {
             text: message,
             userId: this.userId,
+            userInfo: this.userInfo,
             timestamp: Date.now()
         };
         
@@ -444,6 +500,17 @@ class P2PChat {
         const messageWrapper = document.createElement('div');
         messageWrapper.className = `message-wrapper ${isOwn ? 'own' : 'other'}`;
         
+        const userInfo = data.userInfo || this.users.get(data.userId) || { name: '未知用户', avatar: '#999' };
+        
+        // 头像
+        if (!isOwn) {
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.style.backgroundColor = userInfo.avatar;
+            avatar.textContent = userInfo.name.charAt(0);
+            messageWrapper.appendChild(avatar);
+        }
+        
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${isOwn ? 'message-own' : 'message-other'}`;
         
@@ -453,6 +520,7 @@ class P2PChat {
         });
         
         messageDiv.innerHTML = `
+            ${!isOwn ? `<div class="message-name">${this.escapeHtml(userInfo.name)}</div>` : ''}
             <div class="message-text">${this.escapeHtml(data.text)}</div>
             <div class="message-time">${time}</div>
         `;
@@ -498,14 +566,64 @@ class P2PChat {
         }
     }
 
-    updateRoomInfo(room, userCount) {
+    updateRoomInfo(room) {
         this.elements.roomInfo.textContent = room;
-        this.updateUserCount(userCount);
     }
 
-    updateUserCount(count) {
+    updateUserList(usersList) {
+        // 如果提供了新的用户列表，更新本地存储
+        if (usersList) {
+            this.users.clear();
+            for (const [userId, userInfo] of Object.entries(usersList)) {
+                this.users.set(userId, userInfo);
+            }
+        }
+        
+        // 更新用户数
+        const count = this.users.size;
         const prefix = this.connectionMode === 'lan' ? '同网段用户' : '在线用户';
-        this.elements.userCount.textContent = `${prefix}: ${count || 0}`;
+        this.elements.userCount.textContent = `${prefix}: ${count}`;
+        
+        // 更新用户列表显示
+        this.renderUserList();
+    }
+    
+    renderUserList() {
+        // 创建或更新用户列表容器
+        let userListContainer = document.getElementById('userListContainer');
+        if (!userListContainer) {
+            userListContainer = document.createElement('div');
+            userListContainer.id = 'userListContainer';
+            userListContainer.className = 'user-list-container';
+            
+            // 插入到房间控制区域
+            const roomSection = document.querySelector('.room-section');
+            roomSection.appendChild(userListContainer);
+        }
+        
+        // 构建用户列表HTML
+        const userItems = Array.from(this.users.entries()).map(([userId, userInfo]) => {
+            const isConnected = this.peers.has(userId) && 
+                               this.peers.get(userId).dataChannel && 
+                               this.peers.get(userId).dataChannel.readyState === 'open';
+            const isSelf = userId === this.userId;
+            
+            return `
+                <div class="user-item ${isSelf ? 'user-self' : ''}">
+                    <div class="user-avatar" style="background-color: ${userInfo.avatar}">
+                        ${userInfo.name.charAt(0)}
+                    </div>
+                    <span class="user-name">${userInfo.name}${isSelf ? ' (我)' : ''}</span>
+                    ${(isConnected || isSelf) ? '<span class="user-status-dot"></span>' : ''}
+                </div>
+            `;
+        }).join('');
+        
+        userListContainer.innerHTML = `
+            <div class="user-list">
+                ${userItems}
+            </div>
+        `;
     }
 
     startHeartbeat() {

@@ -19,6 +19,7 @@ HEARTBEAT_TIMEOUT = 60
 
 rooms: Dict[str, Set[str]] = {}
 clients: Dict[str, dict] = {}
+users_info: Dict[str, Dict[str, dict]] = {}  # room_id -> {user_id -> user_info}
 
 
 async def cleanup_user(user_id: str):
@@ -31,15 +32,24 @@ async def cleanup_user(user_id: str):
     if room_id and room_id in rooms:
         rooms[room_id].discard(user_id)
         
+        # Remove user info
+        if room_id in users_info and user_id in users_info[room_id]:
+            del users_info[room_id][user_id]
+        
         # Notify other users
         await broadcast(room_id, {
             'type': 'user-left',
             'userId': user_id
         }, exclude_user=user_id)
         
+        # Broadcast updated user list
+        await broadcast_user_list(room_id)
+        
         # Remove empty rooms
         if not rooms[room_id]:
             del rooms[room_id]
+            if room_id in users_info:
+                del users_info[room_id]
     
     # Close websocket if still open
     ws = client.get('ws')
@@ -68,6 +78,18 @@ async def broadcast(room_id: str, message: dict, exclude_user: str = None):
                     logger.error(f"Error sending to {user_id}: {e}")
 
 
+async def broadcast_user_list(room_id: str):
+    """Broadcast updated user list to all users in a room"""
+    if room_id not in rooms:
+        return
+    
+    users_list = users_info.get(room_id, {})
+    await broadcast(room_id, {
+        'type': 'user-list',
+        'users': users_list
+    })
+
+
 async def handle_message(ws: WebSocketServerProtocol, user_id: str, message: dict):
     """Handle incoming WebSocket messages"""
     msg_type = message.get('type')
@@ -79,26 +101,37 @@ async def handle_message(ws: WebSocketServerProtocol, user_id: str, message: dic
             clients[user_id] = {'ws': ws, 'room_id': None, 'last_heartbeat': time.time()}
         
         room_id = message.get('room')
+        user_info = message.get('userInfo', {'name': f'用户{user_id[:4]}', 'avatar': '#999'})
+        
         clients[user_id]['room_id'] = room_id
         
         # Create room if doesn't exist
         if room_id not in rooms:
             rooms[room_id] = set()
+        if room_id not in users_info:
+            users_info[room_id] = {}
         
         rooms[room_id].add(user_id)
+        users_info[room_id][user_id] = user_info
         
-        # Send join confirmation
+        # Send join confirmation with user info
         await ws.send(json.dumps({
             'type': 'joined',
             'userId': user_id,
-            'users': list(rooms[room_id])
+            'userInfo': user_info,
+            'users': list(rooms[room_id]),
+            'usersInfo': users_info[room_id]
         }))
         
-        # Notify others
+        # Notify others with user info
         await broadcast(room_id, {
             'type': 'user-joined',
-            'userId': user_id
+            'userId': user_id,
+            'userInfo': user_info
         }, exclude_user=user_id)
+        
+        # Broadcast updated user list
+        await broadcast_user_list(room_id)
     
     elif msg_type in ['offer', 'answer', 'ice-candidate']:
         target = message.get('target')
