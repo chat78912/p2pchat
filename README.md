@@ -37,16 +37,18 @@ A WebRTC-based peer-to-peer chat application with separate frontend and backend.
 
 ## Backend Deployment
 
-### Build Docker Image
+### Option 1: Use Pre-built Image from Docker Hub
+
+```bash
+# Replace 'yourname' with the actual Docker Hub username
+docker run -d --name p2pchat -p 8080:8080 yourname/p2pchat-server:latest
+```
+
+### Option 2: Build Locally
 
 ```bash
 cd server
 docker build -t p2pchat-server .
-```
-
-### Run with Docker
-
-```bash
 docker run -d --name p2pchat -p 8080:8080 p2pchat-server
 ```
 
