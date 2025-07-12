@@ -28,10 +28,10 @@ A WebRTC-based peer-to-peer chat application with separate frontend and backend.
    - `index.html`
    - `assets/` folder and all its contents
 
-2. Update `assets/config.js` with your backend WebSocket URL:
+2. Update `assets/config.js` with your backend WebSocket URL (已部署):
    ```javascript
    const WS_CONFIG = {
-     url: 'wss://your-server.com'  // Your backend server URL
+     url: 'wss://chatserver.canghai.org'  // 已部署的后端服务器
    };
    ```
 
