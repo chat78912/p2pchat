@@ -1,8 +1,8 @@
 // WebSocket signaling server configuration
 const WS_CONFIG = {
   // Replace with your actual backend server URL when deploying
-  // Example: 'wss://your-server.com' or 'ws://192.168.1.100:8080'
-  url: 'ws://localhost:8080',
+  // Example: 'wss://your-server.com' or 'ws://192.168.1.100:5082'
+  url: 'ws://localhost:5082',
   
   // Connection settings
   heartbeatInterval: 30000,  // 30 seconds

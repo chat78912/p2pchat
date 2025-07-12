@@ -13,7 +13,7 @@ from websockets.server import WebSocketServerProtocol
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-PORT = int(os.environ.get('PORT', 8080))
+PORT = int(os.environ.get('PORT', 5082))
 HEARTBEAT_INTERVAL = 30
 HEARTBEAT_TIMEOUT = 60
 

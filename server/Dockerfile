@@ -10,6 +10,6 @@ COPY --from=builder /app/deps /app/deps
 COPY server.py .
 ENV PYTHONPATH=/app/deps
 USER nobody
-EXPOSE 8080
+EXPOSE 5082
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["python", "-u", "server.py"]
