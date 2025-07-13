@@ -641,6 +641,9 @@ class BaseChatMode {
                 case 'file-reject':
                     this.handleFileReject(message, peerId);
                     break;
+                case 'file-cancel':
+                    this.handleFileCancel(message, peerId);
+                    break;
                 case 'file-metadata':
                     this.handleFileMetadata(message, peerId);
                     break;
@@ -1048,9 +1051,6 @@ class BaseChatMode {
             display: flex;
             align-items: center;
             gap: 15px;
-            padding: 15px 20px;
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 12px;
             min-width: 250px;
         `;
         
@@ -1072,7 +1072,7 @@ class BaseChatMode {
         const fileName = document.createElement('div');
         fileName.style.cssText = `
             font-weight: 600;
-            color: #374151;
+            color: ${isOwn ? 'rgba(255, 255, 255, 0.95)' : '#374151'};
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -1082,7 +1082,7 @@ class BaseChatMode {
         const fileSize = document.createElement('div');
         fileSize.style.cssText = `
             font-size: 12px;
-            color: #6b7280;
+            color: ${isOwn ? 'rgba(255, 255, 255, 0.75)' : '#6b7280'};
             margin-top: 4px;
         `;
         fileSize.textContent = this.formatFileSize(fileData.fileSize);
@@ -1096,22 +1096,29 @@ class BaseChatMode {
         downloadBtn.download = fileData.fileName;
         downloadBtn.style.cssText = `
             padding: 8px 16px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: ${isOwn ? 'rgba(255, 255, 255, 0.2)' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'};
             color: white;
             border-radius: 20px;
             text-decoration: none;
             font-size: 14px;
             font-weight: 600;
             transition: all 0.3s ease;
+            border: ${isOwn ? '1px solid rgba(255, 255, 255, 0.3)' : 'none'};
         `;
         downloadBtn.textContent = '下载';
         downloadBtn.onmouseover = () => {
             downloadBtn.style.transform = 'translateY(-2px)';
             downloadBtn.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+            if (isOwn) {
+                downloadBtn.style.background = 'rgba(255, 255, 255, 0.3)';
+            }
         };
         downloadBtn.onmouseout = () => {
             downloadBtn.style.transform = 'translateY(0)';
             downloadBtn.style.boxShadow = 'none';
+            if (isOwn) {
+                downloadBtn.style.background = 'rgba(255, 255, 255, 0.2)';
+            }
         };
         
         fileContainer.appendChild(fileIcon);
@@ -1224,9 +1231,6 @@ class BaseChatMode {
             display: flex;
             align-items: center;
             gap: 15px;
-            padding: 15px 20px;
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 12px;
             min-width: 250px;
         `;
         
@@ -1248,7 +1252,7 @@ class BaseChatMode {
         const fileName = document.createElement('div');
         fileName.style.cssText = `
             font-weight: 600;
-            color: #374151;
+            color: ${isOwn ? 'rgba(255, 255, 255, 0.95)' : '#374151'};
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -1258,7 +1262,7 @@ class BaseChatMode {
         const fileSize = document.createElement('div');
         fileSize.style.cssText = `
             font-size: 12px;
-            color: #6b7280;
+            color: ${isOwn ? 'rgba(255, 255, 255, 0.75)' : '#6b7280'};
             margin-top: 4px;
         `;
         fileSize.textContent = this.formatFileSize(offer.fileSize);
@@ -1275,7 +1279,7 @@ class BaseChatMode {
             statusDiv.className = 'file-status';
             statusDiv.style.cssText = `
                 font-size: 14px;
-                color: #6b7280;
+                color: rgba(255, 255, 255, 0.8);
             `;
             statusDiv.textContent = '等待对方接收...';
             fileOfferContainer.appendChild(statusDiv);
@@ -1411,6 +1415,22 @@ class BaseChatMode {
         }
         
         this.showNotification('❌ 对方拒绝接收文件');
+    }
+    
+    handleFileCancel(message, peerId) {
+        // 处理文件取消
+        const receiver = this.fileReceivers?.get(message.fileId);
+        if (receiver) {
+            // 清理接收器
+            this.fileReceivers.delete(message.fileId);
+            
+            // 移除进度条
+            this.removeFileProgress(message.fileId);
+            
+            // 显示取消通知
+            const fileName = receiver.metadata?.fileName || '文件';
+            this.showNotification(`⚠️ 发送方取消了文件传输: ${fileName}`);
+        }
     }
     
     // 开始实时发送文件（流式传输）
@@ -1870,6 +1890,37 @@ class BaseChatMode {
         }
     }
     
+    // 取消文件发送
+    cancelFileSending(fileId) {
+        const sender = this.fileSenders?.get(fileId);
+        if (sender) {
+            // 停止发送
+            sender.isPaused = true;
+            
+            // 从发送队列中移除
+            this.fileSenders.delete(fileId);
+            
+            // 从待发送文件中移除
+            this.pendingFiles?.delete(fileId);
+            
+            // 移除进度条UI
+            this.removeFileProgress(fileId);
+            
+            // 发送取消通知给接收方
+            this.peerConnections.forEach((peerData) => {
+                if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                    peerData.dataChannel.send(JSON.stringify({
+                        type: 'file-cancel',
+                        fileId: fileId,
+                        userId: this.currentUserId
+                    }));
+                }
+            });
+            
+            this.showNotification(`❌ 已取消发送: ${sender.file.name}`);
+        }
+    }
+    
     // 显示文件发送进度（与接收进度保持一致的UI）
     showFileSendProgress(fileId, fileName, progress = 0, fileSize = 0) {
         const progressWrapper = document.createElement('div');
@@ -1914,7 +1965,20 @@ class BaseChatMode {
         progressText.className = 'file-progress-text';
         progressText.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>发送文件: ${fileName}</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span>发送文件: ${fileName}</span>
+                    <button class="cancel-btn" data-file-id="${fileId}" style="
+                        padding: 4px 12px;
+                        background: rgba(255, 255, 255, 0.2);
+                        color: rgba(255, 255, 255, 0.9);
+                        border: 1px solid rgba(255, 255, 255, 0.3);
+                        border-radius: 12px;
+                        font-size: 12px;
+                        cursor: pointer;
+                        transition: all 0.2s ease;
+                    " onmouseover="this.style.background='rgba(255, 255, 255, 0.3)'" 
+                      onmouseout="this.style.background='rgba(255, 255, 255, 0.2)'">取消</button>
+                </div>
                 <span class="progress-percent">${Math.round(progress)}%</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 11px; color: #9ca3af;">
@@ -1938,6 +2002,14 @@ class BaseChatMode {
         
         this.domElements.chatMessages.appendChild(progressWrapper);
         this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
+        
+        // 添加取消按钮的点击事件
+        const cancelBtn = progressWrapper.querySelector('.cancel-btn');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                this.cancelFileSending(fileId);
+            });
+        }
     }
 
     showNotification(text) {
