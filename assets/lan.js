@@ -198,6 +198,7 @@ class LANMode extends BaseChatMode {
         
         this.domElements.messageInput.disabled = false;
         this.domElements.sendButton.disabled = false;
+        this.domElements.attachButton.disabled = false;
         this.domElements.messageInput.placeholder = '输入消息...';
         
         this.updateUserList();

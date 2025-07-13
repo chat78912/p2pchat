@@ -81,6 +81,7 @@ class InternetMode extends BaseChatMode {
         this.domElements.leaveButton.style.display = 'none';
         this.domElements.messageInput.disabled = true;
         this.domElements.sendButton.disabled = true;
+        this.domElements.attachButton.disabled = true;
         
         this.showNotification('已离开房间');
         
@@ -111,6 +112,7 @@ class InternetMode extends BaseChatMode {
         this.domElements.leaveButton.style.display = 'inline-block';
         this.domElements.messageInput.disabled = false;
         this.domElements.sendButton.disabled = false;
+        this.domElements.attachButton.disabled = false;
         this.domElements.messageInput.placeholder = '输入消息...';
         
         this.updateUserList();
