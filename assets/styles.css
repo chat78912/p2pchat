@@ -837,28 +837,42 @@ body {
 }
 
 /* 拖放效果 */
-.chat-container.drag-over {
+.chat-container {
     position: relative;
+    transition: all 0.2s ease;
 }
 
 .chat-container.drag-over::before {
-    content: '拖放文件到此处';
-    position: absolute;
+    content: '📁 拖放文件到此处发送';
+    position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(102, 126, 234, 0.9);
+    background: rgba(102, 126, 234, 0.95);
     color: white;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: 28px;
     font-weight: 600;
-    z-index: 1000;
-    border: 3px dashed white;
-    border-radius: 25px;
-    backdrop-filter: blur(10px);
+    z-index: 10000;
+    border: 4px dashed rgba(255, 255, 255, 0.8);
+    border-radius: 20px;
+    margin: 20px;
+    backdrop-filter: blur(15px);
+    animation: dragPulse 1.5s infinite ease-in-out;
+}
+
+@keyframes dragPulse {
+    0%, 100% {
+        border-color: rgba(255, 255, 255, 0.8);
+        transform: scale(1);
+    }
+    50% {
+        border-color: rgba(255, 255, 255, 1);
+        transform: scale(1.02);
+    }
 }
 
 /* 滚动条 */

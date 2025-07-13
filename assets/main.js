@@ -416,34 +416,70 @@ class BaseChatMode {
     // 设置拖放功能
     setupDragAndDrop() {
         const chatContainer = document.querySelector('.chat-container');
+        let dragCounter = 0;
+        let dragTimeout = null;
         
-        // 阻止默认拖放行为
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            chatContainer.addEventListener(eventName, (e) => {
+        // 阻止全局默认拖放行为
+        ['dragover', 'drop'].forEach(eventName => {
+            document.addEventListener(eventName, (e) => {
                 e.preventDefault();
-                e.stopPropagation();
             });
         });
         
-        // 拖入时的视觉反馈
-        ['dragenter', 'dragover'].forEach(eventName => {
-            chatContainer.addEventListener(eventName, () => {
-                chatContainer.classList.add('drag-over');
-            });
+        // 拖拽进入文档
+        document.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            
+            // 检查是否包含文件
+            if (e.dataTransfer && e.dataTransfer.types && 
+                e.dataTransfer.types.includes('Files')) {
+                dragCounter++;
+                
+                if (dragCounter === 1) {
+                    chatContainer.classList.add('drag-over');
+                }
+                
+                // 清除之前的超时
+                if (dragTimeout) {
+                    clearTimeout(dragTimeout);
+                }
+            }
         });
         
-        ['dragleave', 'drop'].forEach(eventName => {
-            chatContainer.addEventListener(eventName, () => {
+        // 拖拽悬停
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        
+        // 拖拽离开文档
+        document.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            
+            // 使用超时来处理快速进出导致的闪烁
+            dragTimeout = setTimeout(() => {
+                dragCounter = 0;
                 chatContainer.classList.remove('drag-over');
-            });
+            }, 100);
         });
         
-        // 处理文件放置
-        chatContainer.addEventListener('drop', (e) => {
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                // 支持多文件，但这里只处理第一个
-                this.handleFileSelection(files[0]);
+        // 文件放置
+        document.addEventListener('drop', (e) => {
+            e.preventDefault();
+            
+            // 立即清理状态
+            dragCounter = 0;
+            chatContainer.classList.remove('drag-over');
+            
+            if (dragTimeout) {
+                clearTimeout(dragTimeout);
+            }
+            
+            // 只在聊天容器内处理文件
+            if (chatContainer.contains(e.target) || e.target === chatContainer) {
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    this.handleFileSelection(files[0]);
+                }
             }
         });
     }
