@@ -578,7 +578,10 @@ class BaseChatMode {
         };
         
         if (createOffer) {
-            const dataChannel = pc.createDataChannel('chat');
+            const dataChannel = pc.createDataChannel('chat', {
+                ordered: true,
+                maxRetransmits: 3
+            });
             peerData.dataChannel = dataChannel;
             this.setupDataChannel(dataChannel, peerId);
         }
@@ -657,7 +660,19 @@ class BaseChatMode {
         
         dataChannel.onerror = (error) => {
             console.error(`Data channel error with ${this.formatUserId(peerId)}:`, error);
-            this.showNotification(`⚠️ 数据通道错误`);
+            
+            // 清理可能正在进行的文件传输
+            if (this.fileSenders) {
+                for (const [fileId, sender] of this.fileSenders.entries()) {
+                    if (sender.peerId === peerId) {
+                        sender.isPaused = true;
+                        this.showNotification(`❌ 文件传输中断: ${sender.file.name}`);
+                        this.fileSenders.delete(fileId);
+                    }
+                }
+            }
+            
+            this.showNotification(`⚠️ 与 ${this.formatUserId(peerId)} 的数据通道出现错误，请重新连接`);
         };
         
         dataChannel.onclose = () => {
@@ -796,7 +811,7 @@ class BaseChatMode {
     
     sendFileData(fileData) {
         let sentToAnyPeer = false;
-        const chunkSize = 1024 * 1024; // 1MB chunks for LAN speed
+        const chunkSize = 64 * 1024; // 64KB chunks - WebRTC safe size
         const totalChunks = Math.ceil(fileData.data.length / chunkSize);
         
         // 发送文件元数据
@@ -835,7 +850,7 @@ class BaseChatMode {
                         if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
                             peerData.dataChannel.send(JSON.stringify(chunkData));
                         }
-                    }, i * 5); // 减少延迟，LAN环境下提升速度
+                    }, i * 10); // 适当延迟，避免数据通道阻塞
                 }
                 
                 sentToAnyPeer = true;
@@ -1457,7 +1472,7 @@ class BaseChatMode {
     
     // 开始实时发送文件（支持断点续传）
     startFileSending(file, fileId, peerId) {
-        const chunkSize = 2 * 1024 * 1024; // 2MB chunks for LAN speed
+        const chunkSize = 256 * 1024; // 256KB chunks - optimized for WebRTC
         const totalChunks = Math.ceil(file.size / chunkSize);
         let currentChunk = 0;
         
@@ -1514,23 +1529,44 @@ class BaseChatMode {
                 
                 const peerData = this.peerConnections.get(peerId);
                 if (peerData && peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
-                    peerData.dataChannel.send(JSON.stringify(chunkData));
-                    
-                    sender.currentChunk++;
-                    
-                    // 更新进度
-                    const progress = (sender.currentChunk / totalChunks) * 100;
-                    this.updateSendingProgress(fileId, progress);
-                    
-                    // 发送下一个块
-                    if (sender.currentChunk < totalChunks) {
-                        setTimeout(() => sender.sendNextChunk(), 1); // 最小延迟，局域网环境
-                    } else {
-                        // 发送完成
-                        this.fileSendingComplete(fileId);
+                    try {
+                        // 检查数据大小，确保不超过WebRTC限制
+                        const chunkStr = JSON.stringify(chunkData);
+                        if (chunkStr.length > 1024 * 1024) { // 1MB limit for safety
+                            console.warn('Chunk too large, skipping:', chunkStr.length);
+                            sender.currentChunk++;
+                            setTimeout(() => sender.sendNextChunk(), 20);
+                            return;
+                        }
+                        
+                        peerData.dataChannel.send(chunkStr);
+                        
+                        sender.currentChunk++;
+                        
+                        // 更新进度
+                        const progress = (sender.currentChunk / totalChunks) * 100;
+                        this.updateSendingProgress(fileId, progress);
+                        
+                        // 发送下一个块
+                        if (sender.currentChunk < totalChunks) {
+                            setTimeout(() => sender.sendNextChunk(), 20); // 适当延迟，保证稳定性
+                        } else {
+                            // 发送完成
+                            this.fileSendingComplete(fileId);
+                            this.fileSenders.delete(fileId);
+                            this.pendingFiles?.delete(fileId);
+                        }
+                    } catch (error) {
+                        console.error('Error sending chunk:', error);
+                        sender.isPaused = true;
+                        this.showNotification(`❌ 文件发送失败: ${sender.file.name}`);
                         this.fileSenders.delete(fileId);
-                        this.pendingFiles?.delete(fileId);
                     }
+                } else {
+                    console.warn('Data channel not ready, stopping file transfer');
+                    sender.isPaused = true;
+                    this.showNotification(`❌ 连接已断开，文件发送停止`);
+                    this.fileSenders.delete(fileId);
                 }
             };
             
