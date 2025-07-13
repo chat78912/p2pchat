@@ -60,15 +60,18 @@ class ModeSelector {
     // WebSocket连接管理
     async connectToAvailableServer() {
         try {
-            const response = await fetch('assets/servers.json');
-            const data = await response.json();
-            
-            if (!data.servers || data.servers.length === 0) {
+            if (!WS_CONFIG.servers || WS_CONFIG.servers.length === 0) {
                 this.showNotification('❌ 没有可用的服务器配置');
                 return;
             }
             
-            this.availableServers = data.servers.sort((a, b) => (a.priority || 999) - (b.priority || 999));
+            // Convert server URLs to objects with priority if needed
+            this.availableServers = WS_CONFIG.servers.map((server, index) => {
+                if (typeof server === 'string') {
+                    return { url: server, priority: index + 1 };
+                }
+                return server;
+            });
             this.tryNextServer();
         } catch (error) {
             console.error('Failed to load server list:', error);
@@ -199,7 +202,7 @@ class ModeSelector {
             // 动态加载对应的脚本
             if (mode === 'lan') {
                 if (!window.LANMode) {
-                    await this.loadScript('assets/lan-mode.js');
+                    await this.loadScript('assets/lan.js');
                 }
                     // 创建实例时传入发送消息的方法
                 this.chatModeInstance = new window.LANMode(
@@ -208,7 +211,7 @@ class ModeSelector {
                 );
             } else {
                 if (!window.InternetMode) {
-                    await this.loadScript('assets/internet-mode.js');
+                    await this.loadScript('assets/net.js');
                 }
                 this.chatModeInstance = new window.InternetMode(
                     (data) => this.sendWebSocketMessage(data),
