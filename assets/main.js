@@ -878,17 +878,7 @@ class BaseChatMode {
         
         // 如果是流式下载模式
         if (receiver.isStreaming) {
-            // 在第一个数据块到达时触发下载
-            if (!receiver.firstChunkReceived) {
-                receiver.firstChunkReceived = true;
-                
-                // 创建一个空的 Blob 作为初始下载
-                const initialBlob = new Blob([''], { type: 'application/octet-stream' });
-                const url = URL.createObjectURL(initialBlob);
-                receiver.downloadLink.href = url;
-                receiver.downloadLink.click();
-                
-                // 开始累积数据
+            if (!receiver.chunks) {
                 receiver.chunks = [];
             }
             
@@ -936,21 +926,23 @@ class BaseChatMode {
             this.showNotification(`✅ 文件接收完成 (平均速度: ${this.formatSpeed(avgSpeed)})`);
             
             if (receiver.isStreaming) {
-                // 流式下载模式，创建最终的完整文件
+                // 流式下载模式，创建完整文件并触发下载
                 const fullBlob = new Blob(receiver.chunks, { type: receiver.metadata.fileType || 'application/octet-stream' });
                 const finalUrl = URL.createObjectURL(fullBlob);
                 
-                // 更新下载链接并再次触发下载
-                if (receiver.downloadLink) {
-                    receiver.downloadLink.href = finalUrl;
-                    receiver.downloadLink.click();
-                    
-                    // 清理
-                    setTimeout(() => {
-                        URL.revokeObjectURL(finalUrl);
-                        document.body.removeChild(receiver.downloadLink);
-                    }, 1000);
-                }
+                // 使用新的下载链接
+                const downloadLink = document.createElement('a');
+                downloadLink.href = finalUrl;
+                downloadLink.download = receiver.metadata.fileName;
+                downloadLink.style.display = 'none';
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                
+                // 清理
+                setTimeout(() => {
+                    URL.revokeObjectURL(finalUrl);
+                    document.body.removeChild(downloadLink);
+                }, 1000);
             } else {
                 // 原有的处理方式
                 const completeData = receiver.chunks.join('');
@@ -1808,13 +1800,7 @@ class BaseChatMode {
         // 准备接收器
         this.fileReceivers = this.fileReceivers || new Map();
         
-        // 创建一个虚拟的下载链接
-        const downloadLink = document.createElement('a');
-        downloadLink.download = offer.fileName;
-        downloadLink.style.display = 'none';
-        document.body.appendChild(downloadLink);
-        
-        // 初始化接收器
+        // 初始化接收器（流式模式）
         const receiver = {
             offer: offer,
             metadata: null,
@@ -1823,9 +1809,7 @@ class BaseChatMode {
             startTime: Date.now(),
             lastUpdateTime: Date.now(),
             lastReceivedBytes: 0,
-            isStreaming: true,
-            downloadLink: downloadLink,
-            firstChunkReceived: false
+            isStreaming: true
         };
         
         this.fileReceivers.set(offer.fileId, receiver);
