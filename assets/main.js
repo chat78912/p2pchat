@@ -556,11 +556,23 @@ class BaseChatMode {
             
             // 处理不同类型的消息
             switch (message.type) {
+                case 'file-offer':
+                    this.handleFileOffer(message, peerId);
+                    break;
+                case 'file-accept':
+                    this.handleFileAccept(message, peerId);
+                    break;
+                case 'file-reject':
+                    this.handleFileReject(message, peerId);
+                    break;
                 case 'file-metadata':
                     this.handleFileMetadata(message, peerId);
                     break;
                 case 'file-chunk':
                     this.handleFileChunk(message, peerId);
+                    break;
+                case 'file-progress':
+                    this.handleFileProgress(message, peerId);
                     break;
                 default:
                     // 普通文本消息
@@ -644,31 +656,67 @@ class BaseChatMode {
     
     // 文件处理相关方法
     handleFileSelection(file) {
-        // 限制文件大小（50MB）
-        const maxSize = 50 * 1024 * 1024;
-        if (file.size > maxSize) {
-            this.showNotification('❌ 文件大小不能超过50MB');
-            return;
-        }
-        
-        // 读取文件并发送
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const fileData = {
-                type: 'file',
-                fileType: file.type,
+        // 图片直接发送，最大10MB
+        if (file.type.startsWith('image/')) {
+            const maxImageSize = 10 * 1024 * 1024;
+            if (file.size > maxImageSize) {
+                this.showNotification('❌ 图片大小不能超过10MB');
+                return;
+            }
+            
+            // 直接读取并发送图片
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const fileData = {
+                    type: 'file',
+                    fileType: file.type,
+                    fileName: file.name,
+                    fileSize: file.size,
+                    data: e.target.result,
+                    userId: this.currentUserId,
+                    userInfo: this.currentUserInfo,
+                    timestamp: Date.now()
+                };
+                
+                this.sendFileData(fileData);
+            };
+            
+            reader.readAsDataURL(file);
+        } else {
+            // 其他文件发送前需要确认，支持大文件
+            const maxFileSize = 500 * 1024 * 1024; // 500MB
+            if (file.size > maxFileSize) {
+                this.showNotification('❌ 文件大小不能超过500MB');
+                return;
+            }
+            
+            // 发送文件元信息，等待接收方确认
+            const fileOffer = {
+                type: 'file-offer',
+                fileId: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
                 fileName: file.name,
+                fileType: file.type,
                 fileSize: file.size,
-                data: e.target.result,
                 userId: this.currentUserId,
                 userInfo: this.currentUserInfo,
                 timestamp: Date.now()
             };
             
-            this.sendFileData(fileData);
-        };
+            // 保存文件引用，等待对方接受
+            this.pendingFiles = this.pendingFiles || new Map();
+            this.pendingFiles.set(fileOffer.fileId, file);
+            
+            // 发送文件传输请求
+            this.peerConnections.forEach((peerData) => {
+                if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                    peerData.dataChannel.send(JSON.stringify(fileOffer));
+                }
+            });
+            
+            // 显示等待确认的消息
+            this.displayFileOffer(fileOffer, true);
+        }
         
-        reader.readAsDataURL(file);
         this.domElements.fileInput.value = ''; // 清空文件选择
     }
     
@@ -792,13 +840,28 @@ class BaseChatMode {
     fileReceivers = new Map(); // 存储正在接收的文件
     
     handleFileMetadata(metadata, peerId) {
-        // 初始化文件接收器
-        this.fileReceivers.set(metadata.fileId, {
-            metadata: metadata,
-            chunks: new Array(metadata.totalChunks),
-            receivedChunks: 0,
-            progressElement: null
-        });
+        // 更新已有的接收器或创建新的
+        let receiver = this.fileReceivers.get(metadata.fileId);
+        if (receiver) {
+            // 更新元数据
+            receiver.metadata = metadata;
+            receiver.chunks = new Array(metadata.totalChunks);
+        } else {
+            // 初始化文件接收器
+            receiver = {
+                metadata: metadata,
+                chunks: new Array(metadata.totalChunks),
+                receivedChunks: 0,
+                progressElement: null
+            };
+            this.fileReceivers.set(metadata.fileId, receiver);
+        }
+        
+        // 移除offer UI，显示进度
+        const offerElement = document.getElementById(`file-offer-${metadata.fileId}`);
+        if (offerElement) {
+            offerElement.remove();
+        }
         
         // 显示文件接收进度
         this.showFileProgress(metadata.fileId, metadata.fileName, 0);
@@ -835,9 +898,14 @@ class BaseChatMode {
                     data: completeData
                 }, false);
             } else {
+                // 创建Blob和下载链接
+                const blob = this.dataURLtoBlob(completeData);
+                const url = URL.createObjectURL(blob);
+                
                 this.displayFile({
                     ...receiver.metadata,
-                    data: completeData
+                    data: url,
+                    blob: blob
                 }, false);
             }
             
@@ -854,7 +922,7 @@ class BaseChatMode {
         messageHeader.className = 'message-header';
         
         const avatar = document.createElement('img');
-        avatar.className = 'user-avatar';
+        avatar.className = 'message-avatar';
         avatar.src = imageData.userInfo.avatar;
         avatar.alt = imageData.userInfo.name;
         
@@ -931,7 +999,7 @@ class BaseChatMode {
         messageHeader.className = 'message-header';
         
         const avatar = document.createElement('img');
-        avatar.className = 'user-avatar';
+        avatar.className = 'message-avatar';
         avatar.src = fileData.userInfo.avatar;
         avatar.alt = fileData.userInfo.name;
         
@@ -1005,7 +1073,7 @@ class BaseChatMode {
         
         // 下载按钮
         const downloadBtn = document.createElement('a');
-        downloadBtn.href = fileData.data;
+        downloadBtn.href = fileData.blob ? fileData.data : fileData.data; // 如果有blob使用blob URL
         downloadBtn.download = fileData.fileName;
         downloadBtn.style.cssText = `
             padding: 8px 16px;
@@ -1066,6 +1134,386 @@ class BaseChatMode {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    dataURLtoBlob(dataURL) {
+        const arr = dataURL.split(',');
+        const mime = arr[0].match(/:(.*?);/)[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        
+        while (n--) {
+            u8arr[n] = bstr.charCodeAt(n);
+        }
+        
+        return new Blob([u8arr], { type: mime });
+    }
+    
+    // 文件传输请求处理
+    handleFileOffer(offer, peerId) {
+        // 显示文件接收请求
+        this.displayFileOffer(offer, false, peerId);
+    }
+    
+    displayFileOffer(offer, isOwn, peerId = null) {
+        const messageWrapper = document.createElement('div');
+        messageWrapper.className = `message-wrapper ${isOwn ? 'own' : 'other'}`;
+        messageWrapper.id = `file-offer-${offer.fileId}`;
+        
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        const avatar = document.createElement('img');
+        avatar.className = 'message-avatar';
+        avatar.src = offer.userInfo.avatar;
+        avatar.alt = offer.userInfo.name;
+        
+        const headerText = document.createElement('div');
+        headerText.className = 'message-header-text';
+        
+        const name = document.createElement('span');
+        name.className = 'message-name';
+        name.textContent = offer.userInfo.name;
+        
+        const time = document.createElement('span');
+        time.className = 'message-time';
+        time.textContent = new Date(offer.timestamp).toLocaleTimeString();
+        
+        headerText.appendChild(name);
+        headerText.appendChild(time);
+        
+        messageHeader.appendChild(avatar);
+        messageHeader.appendChild(headerText);
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${isOwn ? 'message-own' : 'message-other'}`;
+        
+        const fileOfferContainer = document.createElement('div');
+        fileOfferContainer.className = 'file-offer-container';
+        fileOfferContainer.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px 20px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            min-width: 250px;
+        `;
+        
+        // 文件图标
+        const fileIcon = document.createElement('div');
+        fileIcon.style.cssText = `
+            font-size: 48px;
+            flex-shrink: 0;
+        `;
+        fileIcon.textContent = this.getFileIcon(offer.fileType);
+        
+        // 文件信息
+        const fileInfo = document.createElement('div');
+        fileInfo.style.cssText = `
+            flex: 1;
+            overflow: hidden;
+        `;
+        
+        const fileName = document.createElement('div');
+        fileName.style.cssText = `
+            font-weight: 600;
+            color: #374151;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        `;
+        fileName.textContent = offer.fileName;
+        
+        const fileSize = document.createElement('div');
+        fileSize.style.cssText = `
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        `;
+        fileSize.textContent = this.formatFileSize(offer.fileSize);
+        
+        fileInfo.appendChild(fileName);
+        fileInfo.appendChild(fileSize);
+        
+        fileOfferContainer.appendChild(fileIcon);
+        fileOfferContainer.appendChild(fileInfo);
+        
+        if (isOwn) {
+            // 发送方显示等待状态
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'file-status';
+            statusDiv.style.cssText = `
+                font-size: 14px;
+                color: #6b7280;
+            `;
+            statusDiv.textContent = '等待对方接收...';
+            fileOfferContainer.appendChild(statusDiv);
+        } else {
+            // 接收方显示接受/拒绝按钮
+            const buttonsDiv = document.createElement('div');
+            buttonsDiv.style.cssText = `
+                display: flex;
+                gap: 10px;
+            `;
+            
+            const acceptBtn = document.createElement('button');
+            acceptBtn.style.cssText = `
+                padding: 8px 16px;
+                background: #10b981;
+                color: white;
+                border: none;
+                border-radius: 20px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            `;
+            acceptBtn.textContent = '接收';
+            acceptBtn.onclick = () => this.acceptFileOffer(offer, peerId);
+            
+            const rejectBtn = document.createElement('button');
+            rejectBtn.style.cssText = `
+                padding: 8px 16px;
+                background: #ef4444;
+                color: white;
+                border: none;
+                border-radius: 20px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            `;
+            rejectBtn.textContent = '拒绝';
+            rejectBtn.onclick = () => this.rejectFileOffer(offer, peerId);
+            
+            buttonsDiv.appendChild(acceptBtn);
+            buttonsDiv.appendChild(rejectBtn);
+            fileOfferContainer.appendChild(buttonsDiv);
+        }
+        
+        messageDiv.appendChild(fileOfferContainer);
+        
+        messageWrapper.appendChild(messageHeader);
+        messageWrapper.appendChild(messageDiv);
+        
+        this.domElements.chatMessages.appendChild(messageWrapper);
+        this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
+    }
+    
+    acceptFileOffer(offer, peerId) {
+        // 发送接受响应
+        const response = {
+            type: 'file-accept',
+            fileId: offer.fileId,
+            userId: this.currentUserId
+        };
+        
+        const peerData = this.peerConnections.get(peerId);
+        if (peerData && peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+            peerData.dataChannel.send(JSON.stringify(response));
+        }
+        
+        // 更新UI显示为准备接收
+        const offerElement = document.getElementById(`file-offer-${offer.fileId}`);
+        if (offerElement) {
+            const buttonsDiv = offerElement.querySelector('.file-offer-container > div:last-child');
+            if (buttonsDiv) {
+                buttonsDiv.innerHTML = '<span style="color: #10b981;">准备接收文件...</span>';
+            }
+        }
+        
+        // 准备接收文件
+        this.prepareFileReceiver(offer);
+    }
+    
+    rejectFileOffer(offer, peerId) {
+        // 发送拒绝响应
+        const response = {
+            type: 'file-reject',
+            fileId: offer.fileId,
+            userId: this.currentUserId
+        };
+        
+        const peerData = this.peerConnections.get(peerId);
+        if (peerData && peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+            peerData.dataChannel.send(JSON.stringify(response));
+        }
+        
+        // 移除UI元素
+        const offerElement = document.getElementById(`file-offer-${offer.fileId}`);
+        if (offerElement) {
+            offerElement.remove();
+        }
+        
+        this.showNotification('❌ 已拒绝接收文件');
+    }
+    
+    handleFileAccept(response, peerId) {
+        const file = this.pendingFiles?.get(response.fileId);
+        if (!file) {
+            console.error('找不到待发送的文件:', response.fileId);
+            return;
+        }
+        
+        // 更新UI状态
+        const offerElement = document.getElementById(`file-offer-${response.fileId}`);
+        if (offerElement) {
+            const statusDiv = offerElement.querySelector('.file-status');
+            if (statusDiv) {
+                statusDiv.textContent = '正在发送...';
+                statusDiv.style.color = '#10b981';
+            }
+        }
+        
+        // 开始发送文件
+        this.startFileSending(file, response.fileId, peerId);
+    }
+    
+    handleFileReject(response, peerId) {
+        // 移除待发送文件
+        this.pendingFiles?.delete(response.fileId);
+        
+        // 更新UI
+        const offerElement = document.getElementById(`file-offer-${response.fileId}`);
+        if (offerElement) {
+            const statusDiv = offerElement.querySelector('.file-status');
+            if (statusDiv) {
+                statusDiv.textContent = '对方拒绝接收';
+                statusDiv.style.color = '#ef4444';
+            }
+        }
+        
+        this.showNotification('❌ 对方拒绝接收文件');
+    }
+    
+    // 开始实时发送文件（支持断点续传）
+    startFileSending(file, fileId, peerId) {
+        const chunkSize = 64 * 1024; // 64KB chunks for better performance
+        const totalChunks = Math.ceil(file.size / chunkSize);
+        let currentChunk = 0;
+        
+        // 发送文件元数据
+        const metadata = {
+            type: 'file-metadata',
+            fileId: fileId,
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            totalChunks: totalChunks,
+            chunkSize: chunkSize,
+            userId: this.currentUserId,
+            userInfo: this.currentUserInfo
+        };
+        
+        const peerData = this.peerConnections.get(peerId);
+        if (peerData && peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+            peerData.dataChannel.send(JSON.stringify(metadata));
+        }
+        
+        // 创建发送进度跟踪
+        this.fileSenders = this.fileSenders || new Map();
+        const sender = {
+            file: file,
+            fileId: fileId,
+            totalChunks: totalChunks,
+            currentChunk: 0,
+            chunkSize: chunkSize,
+            peerId: peerId,
+            isPaused: false,
+            sendNextChunk: null
+        };
+        
+        // 定义发送下一个块的函数
+        sender.sendNextChunk = () => {
+            if (sender.isPaused || sender.currentChunk >= totalChunks) {
+                return;
+            }
+            
+            const start = sender.currentChunk * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            const chunk = file.slice(start, end);
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const chunkData = {
+                    type: 'file-chunk',
+                    fileId: fileId,
+                    chunkIndex: sender.currentChunk,
+                    totalChunks: totalChunks,
+                    data: e.target.result
+                };
+                
+                const peerData = this.peerConnections.get(peerId);
+                if (peerData && peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                    peerData.dataChannel.send(JSON.stringify(chunkData));
+                    
+                    sender.currentChunk++;
+                    
+                    // 更新进度
+                    const progress = (sender.currentChunk / totalChunks) * 100;
+                    this.updateSendingProgress(fileId, progress);
+                    
+                    // 发送下一个块
+                    if (sender.currentChunk < totalChunks) {
+                        setTimeout(() => sender.sendNextChunk(), 10); // 小延迟避免阻塞
+                    } else {
+                        // 发送完成
+                        this.fileSendingComplete(fileId);
+                        this.fileSenders.delete(fileId);
+                        this.pendingFiles?.delete(fileId);
+                    }
+                }
+            };
+            
+            reader.readAsDataURL(chunk);
+        };
+        
+        this.fileSenders.set(fileId, sender);
+        
+        // 开始发送
+        sender.sendNextChunk();
+    }
+    
+    updateSendingProgress(fileId, progress) {
+        const offerElement = document.getElementById(`file-offer-${fileId}`);
+        if (offerElement) {
+            let statusDiv = offerElement.querySelector('.file-status');
+            if (statusDiv) {
+                statusDiv.innerHTML = `
+                    <div>发送中: ${Math.round(progress)}%</div>
+                    <div style="width: 100px; height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 4px;">
+                        <div style="width: ${progress}%; height: 100%; background: #10b981; border-radius: 2px; transition: width 0.3s;"></div>
+                    </div>
+                `;
+            }
+        }
+    }
+    
+    fileSendingComplete(fileId) {
+        const offerElement = document.getElementById(`file-offer-${fileId}`);
+        if (offerElement) {
+            offerElement.remove();
+        }
+        this.showNotification('✅ 文件发送完成');
+    }
+    
+    prepareFileReceiver(offer) {
+        // 为接收文件做准备
+        this.fileReceivers = this.fileReceivers || new Map();
+        this.fileReceivers.set(offer.fileId, {
+            offer: offer,
+            metadata: null,
+            chunks: null,
+            receivedChunks: 0,
+            lastChunkTime: Date.now()
+        });
+    }
+    
+    handleFileProgress(progress, peerId) {
+        // 处理文件传输进度更新（用于断点续传）
+        console.log(`文件进度更新: ${progress.fileId} - ${progress.receivedChunks}/${progress.totalChunks}`);
     }
 
     // 工具方法
