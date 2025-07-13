@@ -579,10 +579,7 @@ class BaseChatMode {
         
         if (createOffer) {
             const dataChannel = pc.createDataChannel('chat', {
-                ordered: true,
-                maxRetransmits: 5,
-                maxPacketLifeTime: 5000,
-                protocol: ''
+                ordered: true
             });
             peerData.dataChannel = dataChannel;
             this.setupDataChannel(dataChannel, peerId);
