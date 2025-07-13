@@ -580,7 +580,9 @@ class BaseChatMode {
         if (createOffer) {
             const dataChannel = pc.createDataChannel('chat', {
                 ordered: true,
-                maxRetransmits: 3
+                maxRetransmits: 5,
+                maxPacketLifeTime: 5000,
+                protocol: ''
             });
             peerData.dataChannel = dataChannel;
             this.setupDataChannel(dataChannel, peerId);
@@ -745,13 +747,8 @@ class BaseChatMode {
     
     // 文件处理相关方法
     handleFileSelection(file) {
-        // 图片直接发送，最大10MB
+        // 图片直接发送，无大小限制
         if (file.type.startsWith('image/')) {
-            const maxImageSize = 10 * 1024 * 1024;
-            if (file.size > maxImageSize) {
-                this.showNotification('❌ 图片大小不能超过10MB');
-                return;
-            }
             
             // 直接读取并发送图片
             const reader = new FileReader();
@@ -772,12 +769,7 @@ class BaseChatMode {
             
             reader.readAsDataURL(file);
         } else {
-            // 其他文件发送前需要确认，支持大文件
-            const maxFileSize = 500 * 1024 * 1024; // 500MB
-            if (file.size > maxFileSize) {
-                this.showNotification('❌ 文件大小不能超过500MB');
-                return;
-            }
+            // 其他文件发送前需要确认，无大小限制
             
             // 发送文件元信息，等待接收方确认
             const fileOffer = {
@@ -811,7 +803,7 @@ class BaseChatMode {
     
     sendFileData(fileData) {
         let sentToAnyPeer = false;
-        const chunkSize = 64 * 1024; // 64KB chunks - WebRTC safe size
+        const chunkSize = 32 * 1024; // 32KB chunks - maximum stability
         const totalChunks = Math.ceil(fileData.data.length / chunkSize);
         
         // 发送文件元数据
@@ -848,9 +840,25 @@ class BaseChatMode {
                     
                     setTimeout(() => {
                         if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
-                            peerData.dataChannel.send(JSON.stringify(chunkData));
+                            try {
+                                // 检查缓冲区状态
+                                const bufferedAmount = peerData.dataChannel.bufferedAmount;
+                                if (bufferedAmount > 256 * 1024) {
+                                    console.log('Buffer full during image send, waiting...');
+                                    // 缓冲区满了，延迟更长时间重试
+                                    setTimeout(() => {
+                                        if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                                            peerData.dataChannel.send(JSON.stringify(chunkData));
+                                        }
+                                    }, 100);
+                                } else {
+                                    peerData.dataChannel.send(JSON.stringify(chunkData));
+                                }
+                            } catch (error) {
+                                console.error('Error sending image chunk:', error);
+                            }
                         }
-                    }, i * 10); // 适当延迟，避免数据通道阻塞
+                    }, i * 15); // 增加延迟，提高稳定性
                 }
                 
                 sentToAnyPeer = true;
@@ -1472,7 +1480,7 @@ class BaseChatMode {
     
     // 开始实时发送文件（支持断点续传）
     startFileSending(file, fileId, peerId) {
-        const chunkSize = 256 * 1024; // 256KB chunks - optimized for WebRTC
+        const chunkSize = 64 * 1024; // 64KB chunks - maximum stability for large files
         const totalChunks = Math.ceil(file.size / chunkSize);
         let currentChunk = 0;
         
@@ -1532,10 +1540,21 @@ class BaseChatMode {
                     try {
                         // 检查数据大小，确保不超过WebRTC限制
                         const chunkStr = JSON.stringify(chunkData);
-                        if (chunkStr.length > 1024 * 1024) { // 1MB limit for safety
+                        if (chunkStr.length > 256 * 1024) { // 256KB limit for maximum stability
                             console.warn('Chunk too large, skipping:', chunkStr.length);
                             sender.currentChunk++;
-                            setTimeout(() => sender.sendNextChunk(), 20);
+                            setTimeout(() => sender.sendNextChunk(), 50);
+                            return;
+                        }
+                        
+                        // 检查缓冲区状态，如果缓冲区满了就等待
+                        const bufferedAmount = peerData.dataChannel.bufferedAmount;
+                        const maxBuffer = 256 * 1024; // 256KB buffer limit
+                        
+                        if (bufferedAmount > maxBuffer) {
+                            // 缓冲区满了，等待后重试
+                            console.log('Buffer full, waiting...', bufferedAmount);
+                            setTimeout(() => sender.sendNextChunk(), 100);
                             return;
                         }
                         
@@ -1547,9 +1566,10 @@ class BaseChatMode {
                         const progress = (sender.currentChunk / totalChunks) * 100;
                         this.updateSendingProgress(fileId, progress);
                         
-                        // 发送下一个块
+                        // 发送下一个块，根据缓冲区状态调整延迟
                         if (sender.currentChunk < totalChunks) {
-                            setTimeout(() => sender.sendNextChunk(), 20); // 适当延迟，保证稳定性
+                            const delay = bufferedAmount > 64 * 1024 ? 50 : 20; // 动态调整延迟
+                            setTimeout(() => sender.sendNextChunk(), delay);
                         } else {
                             // 发送完成
                             this.fileSendingComplete(fileId);
