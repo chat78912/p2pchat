@@ -744,146 +744,46 @@ class BaseChatMode {
     
     // 文件处理相关方法
     handleFileSelection(file) {
-        // 图片直接发送，无大小限制
-        if (file.type.startsWith('image/')) {
-            
-            // 直接读取并发送图片
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const fileData = {
-                    type: 'file',
-                    fileType: file.type,
-                    fileName: file.name,
-                    fileSize: file.size,
-                    data: e.target.result,
-                    userId: this.currentUserId,
-                    userInfo: this.currentUserInfo,
-                    timestamp: Date.now()
-                };
-                
-                this.sendFileData(fileData);
-            };
-            
-            reader.readAsDataURL(file);
-        } else {
-            // 其他文件发送前需要确认，无大小限制
-            
-            // 发送文件元信息，等待接收方确认
-            const fileOffer = {
-                type: 'file-offer',
-                fileId: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-                fileName: file.name,
-                fileType: file.type,
-                fileSize: file.size,
-                userId: this.currentUserId,
-                userInfo: this.currentUserInfo,
-                timestamp: Date.now()
-            };
-            
-            // 保存文件引用，等待对方接受
-            this.pendingFiles = this.pendingFiles || new Map();
-            this.pendingFiles.set(fileOffer.fileId, file);
-            
-            // 发送文件传输请求
-            this.peerConnections.forEach((peerData) => {
-                if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
-                    peerData.dataChannel.send(JSON.stringify(fileOffer));
-                }
-            });
-            
+        // 所有文件都需要先发送offer，包括图片
+        // 这样可以实现流式传输，避免将大文件完全加载到内存
+        
+        // 生成文件offer
+        const fileOffer = {
+            type: 'file-offer',
+            fileId: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            userId: this.currentUserId,
+            userInfo: this.currentUserInfo,
+            timestamp: Date.now()
+        };
+        
+        // 保存文件引用，等待对方接受
+        this.pendingFiles = this.pendingFiles || new Map();
+        this.pendingFiles.set(fileOffer.fileId, file);
+        
+        // 发送文件传输请求给所有连接的对等方
+        let sentToAnyPeer = false;
+        this.peerConnections.forEach((peerData, peerId) => {
+            if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                peerData.dataChannel.send(JSON.stringify(fileOffer));
+                sentToAnyPeer = true;
+            }
+        });
+        
+        if (sentToAnyPeer) {
             // 显示等待确认的消息
             this.displayFileOffer(fileOffer, true);
+        } else {
+            this.showNotification('💡 当前没有连接的用户，无法发送文件');
+            this.pendingFiles.delete(fileOffer.fileId);
         }
         
         this.domElements.fileInput.value = ''; // 清空文件选择
     }
     
-    sendFileData(fileData) {
-        let sentToAnyPeer = false;
-        const chunkSize = 32 * 1024; // 32KB chunks - maximum stability
-        const totalChunks = Math.ceil(fileData.data.length / chunkSize);
-        
-        // 发送文件元数据
-        const metadata = {
-            type: 'file-metadata',
-            fileId: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-            fileName: fileData.fileName,
-            fileType: fileData.fileType,
-            fileSize: fileData.fileSize,
-            totalChunks: totalChunks,
-            userId: fileData.userId,
-            userInfo: fileData.userInfo,
-            timestamp: fileData.timestamp
-        };
-        
-        this.peerConnections.forEach((peerData) => {
-            if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
-                // 发送元数据
-                peerData.dataChannel.send(JSON.stringify(metadata));
-                
-                // 分块发送文件数据
-                for (let i = 0; i < totalChunks; i++) {
-                    const start = i * chunkSize;
-                    const end = Math.min(start + chunkSize, fileData.data.length);
-                    const chunk = fileData.data.slice(start, end);
-                    
-                    const chunkData = {
-                        type: 'file-chunk',
-                        fileId: metadata.fileId,
-                        chunkIndex: i,
-                        totalChunks: totalChunks,
-                        data: chunk
-                    };
-                    
-                    setTimeout(() => {
-                        if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
-                            try {
-                                // 检查缓冲区状态
-                                const bufferedAmount = peerData.dataChannel.bufferedAmount;
-                                if (bufferedAmount > 256 * 1024) {
-                                    console.log('Buffer full during image send, waiting...');
-                                    // 缓冲区满了，延迟更长时间重试
-                                    setTimeout(() => {
-                                        if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
-                                            peerData.dataChannel.send(JSON.stringify(chunkData));
-                                        }
-                                    }, 100);
-                                } else {
-                                    peerData.dataChannel.send(JSON.stringify(chunkData));
-                                }
-                            } catch (error) {
-                                console.error('Error sending image chunk:', error);
-                            }
-                        }
-                    }, i * 15); // 增加延迟，提高稳定性
-                }
-                
-                sentToAnyPeer = true;
-            }
-        });
-        
-        // 显示发送进度
-        if (sentToAnyPeer) {
-            this.showNotification(`📤 正在发送文件: ${fileData.fileName}`);
-        }
-        
-        // 根据文件类型显示
-        if (fileData.fileType && fileData.fileType.startsWith('image/')) {
-            this.displayImage({
-                ...metadata,
-                data: fileData.data
-            }, true);
-        } else {
-            this.displayFile({
-                ...metadata,
-                data: fileData.data
-            }, true);
-        }
-        
-        if (!sentToAnyPeer && this.roomUsers.size <= 1) {
-            this.showNotification('💡 当前只有您在房间中');
-        }
-    }
+    // 此方法已被移除，改用流式传输机制
 
     displayMessage(data, isOwn) {
         const messageWrapper = document.createElement('div');
@@ -1486,17 +1386,13 @@ class BaseChatMode {
             return;
         }
         
-        // 更新UI状态
+        // 立即移除offer UI，显示进度条
         const offerElement = document.getElementById(`file-offer-${response.fileId}`);
         if (offerElement) {
-            const statusDiv = offerElement.querySelector('.file-status');
-            if (statusDiv) {
-                statusDiv.textContent = '正在发送...';
-                statusDiv.style.color = '#10b981';
-            }
+            offerElement.remove();
         }
         
-        // 开始发送文件
+        // 开始流式发送文件
         this.startFileSending(file, response.fileId, peerId);
     }
     
@@ -1517,11 +1413,13 @@ class BaseChatMode {
         this.showNotification('❌ 对方拒绝接收文件');
     }
     
-    // 开始实时发送文件（支持断点续传）
+    // 开始实时发送文件（流式传输）
     startFileSending(file, fileId, peerId) {
-        const chunkSize = 64 * 1024; // 64KB chunks - maximum stability for large files
+        const chunkSize = 64 * 1024; // 64KB chunks
         const totalChunks = Math.ceil(file.size / chunkSize);
-        let currentChunk = 0;
+        
+        // 立即显示发送进度UI
+        this.showFileSendProgress(fileId, file.name, 0, file.size);
         
         // 发送文件元数据
         const metadata = {
@@ -1533,7 +1431,8 @@ class BaseChatMode {
             totalChunks: totalChunks,
             chunkSize: chunkSize,
             userId: this.currentUserId,
-            userInfo: this.currentUserInfo
+            userInfo: this.currentUserInfo,
+            timestamp: Date.now()
         };
         
         const peerData = this.peerConnections.get(peerId);
@@ -1657,23 +1556,48 @@ class BaseChatMode {
     }
     
     updateSendingProgress(fileId, progress, speed = null) {
+        // 先移除旧的offer元素，显示新的进度条UI
         const offerElement = document.getElementById(`file-offer-${fileId}`);
-        if (offerElement) {
-            let statusDiv = offerElement.querySelector('.file-status');
-            if (statusDiv) {
-                const speedText = speed ? ` - ${this.formatSpeed(speed)}` : '';
-                statusDiv.innerHTML = `
-                    <div>发送中: ${Math.round(progress)}%${speedText}</div>
-                    <div style="width: 100px; height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 4px;">
-                        <div style="width: ${progress}%; height: 100%; background: #10b981; border-radius: 2px; transition: width 0.3s;"></div>
-                    </div>
-                `;
+        if (offerElement && !document.getElementById(`progress-${fileId}`)) {
+            // 获取文件信息
+            const sender = this.fileSenders.get(fileId);
+            if (sender) {
+                offerElement.remove();
+                // 使用新的进度条UI显示发送进度
+                this.showFileSendProgress(fileId, sender.file.name, progress, sender.file.size);
+            }
+        }
+        
+        // 更新进度
+        const progressWrapper = document.getElementById(`progress-${fileId}`);
+        if (progressWrapper) {
+            const progressFill = progressWrapper.querySelector('.file-progress-fill');
+            const progressPercent = progressWrapper.querySelector('.progress-percent');
+            
+            if (progressFill) {
+                progressFill.style.width = `${progress}%`;
+            }
+            if (progressPercent) {
+                progressPercent.textContent = `${Math.round(progress)}%`;
+            }
+            
+            // 更新速度显示
+            if (speed !== null) {
+                const speedElement = progressWrapper.querySelector('.transfer-speed');
+                if (speedElement) {
+                    speedElement.textContent = `速度: ${this.formatSpeed(speed)}`;
+                }
             }
         }
     }
     
     fileSendingComplete(fileId) {
         const sender = this.fileSenders.get(fileId);
+        
+        // 移除进度条
+        this.removeFileProgress(fileId);
+        
+        // 移除可能存在的offer元素
         const offerElement = document.getElementById(`file-offer-${fileId}`);
         if (offerElement) {
             offerElement.remove();
@@ -1683,6 +1607,37 @@ class BaseChatMode {
             const totalTime = (Date.now() - sender.startTime) / 1000;
             const avgSpeed = sender.file.size / totalTime;
             this.showNotification(`✅ 文件发送完成 (平均速度: ${this.formatSpeed(avgSpeed)})`);
+            
+            // 显示已发送的文件/图片
+            const fileInfo = {
+                fileId: fileId,
+                fileName: sender.file.name,
+                fileType: sender.file.type,
+                fileSize: sender.file.size,
+                userId: this.currentUserId,
+                userInfo: this.currentUserInfo,
+                timestamp: Date.now()
+            };
+            
+            if (sender.file.type && sender.file.type.startsWith('image/')) {
+                // 对于图片，读取并显示
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    this.displayImage({
+                        ...fileInfo,
+                        data: e.target.result
+                    }, true);
+                };
+                reader.readAsDataURL(sender.file);
+            } else {
+                // 对于其他文件，创建下载链接
+                const url = URL.createObjectURL(sender.file);
+                this.displayFile({
+                    ...fileInfo,
+                    data: url,
+                    blob: sender.file
+                }, true);
+            }
         } else {
             this.showNotification('✅ 文件发送完成');
         }
@@ -1913,6 +1868,76 @@ class BaseChatMode {
         if (progressWrapper) {
             progressWrapper.remove();
         }
+    }
+    
+    // 显示文件发送进度（与接收进度保持一致的UI）
+    showFileSendProgress(fileId, fileName, progress = 0, fileSize = 0) {
+        const progressWrapper = document.createElement('div');
+        progressWrapper.className = 'message-wrapper own';
+        progressWrapper.id = `progress-${fileId}`;
+        
+        // 添加消息头部（发送者信息）
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        const avatar = document.createElement('img');
+        avatar.className = 'message-avatar';
+        avatar.src = this.currentUserInfo.avatar;
+        avatar.alt = this.currentUserInfo.name;
+        
+        const headerText = document.createElement('div');
+        headerText.className = 'message-header-text';
+        
+        const name = document.createElement('span');
+        name.className = 'message-name';
+        name.textContent = this.currentUserInfo.name;
+        
+        const time = document.createElement('span');
+        time.className = 'message-time';
+        time.textContent = new Date().toLocaleTimeString();
+        
+        headerText.appendChild(name);
+        headerText.appendChild(time);
+        
+        messageHeader.appendChild(avatar);
+        messageHeader.appendChild(headerText);
+        
+        progressWrapper.appendChild(messageHeader);
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message message-own';
+        
+        const progressDiv = document.createElement('div');
+        progressDiv.className = 'file-progress';
+        
+        const progressText = document.createElement('div');
+        progressText.className = 'file-progress-text';
+        progressText.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>发送文件: ${fileName}</span>
+                <span class="progress-percent">${Math.round(progress)}%</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 11px; color: #9ca3af;">
+                <span class="file-size">${fileSize ? this.formatFileSize(fileSize) : ''}</span>
+                <span class="transfer-speed"></span>
+            </div>
+        `;
+        
+        const progressBar = document.createElement('div');
+        progressBar.className = 'file-progress-bar';
+        
+        const progressFill = document.createElement('div');
+        progressFill.className = 'file-progress-fill';
+        progressFill.style.width = `${progress}%`;
+        
+        progressBar.appendChild(progressFill);
+        progressDiv.appendChild(progressText);
+        progressDiv.appendChild(progressBar);
+        messageDiv.appendChild(progressDiv);
+        progressWrapper.appendChild(messageDiv);
+        
+        this.domElements.chatMessages.appendChild(progressWrapper);
+        this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
     }
 
     showNotification(text) {
