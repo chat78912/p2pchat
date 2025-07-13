@@ -691,6 +691,31 @@ body {
     align-items: center;
 }
 
+/* 拖放效果 */
+.chat-container.drag-over {
+    position: relative;
+}
+
+.chat-container.drag-over::before {
+    content: '拖放文件到此处';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(102, 126, 234, 0.9);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: 600;
+    z-index: 1000;
+    border: 3px dashed white;
+    border-radius: 25px;
+    backdrop-filter: blur(10px);
+}
+
 /* 滚动条 */
 ::-webkit-scrollbar {
     width: 8px;

@@ -373,6 +373,44 @@ class BaseChatMode {
                 this.handleFileSelection(file);
             }
         });
+        
+        // 拖放事件处理
+        this.setupDragAndDrop();
+    }
+    
+    // 设置拖放功能
+    setupDragAndDrop() {
+        const chatContainer = document.querySelector('.chat-container');
+        
+        // 阻止默认拖放行为
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            chatContainer.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+        
+        // 拖入时的视觉反馈
+        ['dragenter', 'dragover'].forEach(eventName => {
+            chatContainer.addEventListener(eventName, () => {
+                chatContainer.classList.add('drag-over');
+            });
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            chatContainer.addEventListener(eventName, () => {
+                chatContainer.classList.remove('drag-over');
+            });
+        });
+        
+        // 处理文件放置
+        chatContainer.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                // 支持多文件，但这里只处理第一个
+                this.handleFileSelection(files[0]);
+            }
+        });
     }
 
     // WebSocket连接管理
@@ -606,16 +644,10 @@ class BaseChatMode {
     
     // 文件处理相关方法
     handleFileSelection(file) {
-        // 限制文件大小（10MB）
-        const maxSize = 10 * 1024 * 1024;
+        // 限制文件大小（50MB）
+        const maxSize = 50 * 1024 * 1024;
         if (file.size > maxSize) {
-            this.showNotification('❌ 文件大小不能超过10MB');
-            return;
-        }
-        
-        // 只接受图片文件
-        if (!file.type.startsWith('image/')) {
-            this.showNotification('❌ 目前只支持发送图片文件');
+            this.showNotification('❌ 文件大小不能超过50MB');
             return;
         }
         
@@ -690,14 +722,21 @@ class BaseChatMode {
         
         // 显示发送进度
         if (sentToAnyPeer) {
-            this.showNotification(`📤 正在发送图片: ${fileData.fileName}`);
+            this.showNotification(`📤 正在发送文件: ${fileData.fileName}`);
         }
         
-        // 显示自己发送的图片
-        this.displayImage({
-            ...metadata,
-            data: fileData.data
-        }, true);
+        // 根据文件类型显示
+        if (fileData.fileType && fileData.fileType.startsWith('image/')) {
+            this.displayImage({
+                ...metadata,
+                data: fileData.data
+            }, true);
+        } else {
+            this.displayFile({
+                ...metadata,
+                data: fileData.data
+            }, true);
+        }
         
         if (!sentToAnyPeer && this.roomUsers.size <= 1) {
             this.showNotification('💡 当前只有您在房间中');
@@ -789,11 +828,18 @@ class BaseChatMode {
             // 移除进度条
             this.removeFileProgress(chunkData.fileId);
             
-            // 显示图片
-            this.displayImage({
-                ...receiver.metadata,
-                data: completeData
-            }, false);
+            // 根据文件类型显示
+            if (receiver.metadata.fileType && receiver.metadata.fileType.startsWith('image/')) {
+                this.displayImage({
+                    ...receiver.metadata,
+                    data: completeData
+                }, false);
+            } else {
+                this.displayFile({
+                    ...receiver.metadata,
+                    data: completeData
+                }, false);
+            }
             
             // 清理接收器
             this.fileReceivers.delete(chunkData.fileId);
@@ -875,6 +921,151 @@ class BaseChatMode {
         
         this.domElements.chatMessages.appendChild(messageWrapper);
         this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
+    }
+    
+    displayFile(fileData, isOwn) {
+        const messageWrapper = document.createElement('div');
+        messageWrapper.className = `message-wrapper ${isOwn ? 'own' : 'other'}`;
+        
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        const avatar = document.createElement('img');
+        avatar.className = 'user-avatar';
+        avatar.src = fileData.userInfo.avatar;
+        avatar.alt = fileData.userInfo.name;
+        
+        const headerText = document.createElement('div');
+        headerText.className = 'message-header-text';
+        
+        const name = document.createElement('span');
+        name.className = 'message-name';
+        name.textContent = fileData.userInfo.name;
+        
+        const time = document.createElement('span');
+        time.className = 'message-time';
+        time.textContent = new Date(fileData.timestamp).toLocaleTimeString();
+        
+        headerText.appendChild(name);
+        headerText.appendChild(time);
+        
+        messageHeader.appendChild(avatar);
+        messageHeader.appendChild(headerText);
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${isOwn ? 'message-own' : 'message-other'}`;
+        
+        const fileContainer = document.createElement('div');
+        fileContainer.className = 'file-container';
+        fileContainer.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px 20px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            min-width: 250px;
+        `;
+        
+        // 文件图标
+        const fileIcon = document.createElement('div');
+        fileIcon.style.cssText = `
+            font-size: 48px;
+            flex-shrink: 0;
+        `;
+        fileIcon.textContent = this.getFileIcon(fileData.fileType);
+        
+        // 文件信息
+        const fileInfo = document.createElement('div');
+        fileInfo.style.cssText = `
+            flex: 1;
+            overflow: hidden;
+        `;
+        
+        const fileName = document.createElement('div');
+        fileName.style.cssText = `
+            font-weight: 600;
+            color: #374151;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        `;
+        fileName.textContent = fileData.fileName;
+        
+        const fileSize = document.createElement('div');
+        fileSize.style.cssText = `
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        `;
+        fileSize.textContent = this.formatFileSize(fileData.fileSize);
+        
+        fileInfo.appendChild(fileName);
+        fileInfo.appendChild(fileSize);
+        
+        // 下载按钮
+        const downloadBtn = document.createElement('a');
+        downloadBtn.href = fileData.data;
+        downloadBtn.download = fileData.fileName;
+        downloadBtn.style.cssText = `
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 20px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        `;
+        downloadBtn.textContent = '下载';
+        downloadBtn.onmouseover = () => {
+            downloadBtn.style.transform = 'translateY(-2px)';
+            downloadBtn.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+        };
+        downloadBtn.onmouseout = () => {
+            downloadBtn.style.transform = 'translateY(0)';
+            downloadBtn.style.boxShadow = 'none';
+        };
+        
+        fileContainer.appendChild(fileIcon);
+        fileContainer.appendChild(fileInfo);
+        fileContainer.appendChild(downloadBtn);
+        
+        messageDiv.appendChild(fileContainer);
+        
+        messageWrapper.appendChild(messageHeader);
+        messageWrapper.appendChild(messageDiv);
+        
+        this.domElements.chatMessages.appendChild(messageWrapper);
+        this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
+    }
+    
+    getFileIcon(fileType) {
+        if (!fileType) return '📄';
+        
+        // 根据MIME类型返回对应的emoji图标
+        if (fileType.startsWith('image/')) return '🖼️';
+        if (fileType.startsWith('video/')) return '🎥';
+        if (fileType.startsWith('audio/')) return '🎵';
+        if (fileType.includes('pdf')) return '📑';
+        if (fileType.includes('zip') || fileType.includes('rar') || fileType.includes('7z')) return '📦';
+        if (fileType.includes('doc') || fileType.includes('docx')) return '📝';
+        if (fileType.includes('xls') || fileType.includes('xlsx')) return '📊';
+        if (fileType.includes('ppt') || fileType.includes('pptx')) return '📈';
+        if (fileType.includes('text') || fileType.includes('txt')) return '📃';
+        if (fileType.includes('javascript') || fileType.includes('json')) return '💻';
+        
+        return '📄';
+    }
+    
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
     // 工具方法
