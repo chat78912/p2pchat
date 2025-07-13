@@ -44,8 +44,8 @@ class ModeSelector {
         this.elements = {
             lanModeButton: document.getElementById('lanMode'),
             internetModeButton: document.getElementById('internetMode'),
-            autoConnectInfo: document.getElementById('autoConnectInfo'),
-            manualConnectInfo: document.getElementById('manualConnectInfo')
+            internetRoomControls: document.getElementById('internetRoomControls'),
+            lanStatus: document.getElementById('lanStatus')
         };
     }
     
@@ -276,8 +276,8 @@ class ModeSelector {
         
         if (mode === 'lan') {
             this.elements.lanModeButton.classList.add('active');
-            this.elements.autoConnectInfo.style.display = 'block';
-            this.elements.manualConnectInfo.style.display = 'none';
+            this.elements.lanStatus.style.display = 'block';
+            this.elements.internetRoomControls.style.display = 'none';
             
             const messageInput = document.getElementById('messageInput');
             if (messageInput) {
@@ -285,8 +285,8 @@ class ModeSelector {
             }
         } else {
             this.elements.internetModeButton.classList.add('active');
-            this.elements.autoConnectInfo.style.display = 'none';
-            this.elements.manualConnectInfo.style.display = 'block';
+            this.elements.lanStatus.style.display = 'none';
+            this.elements.internetRoomControls.style.display = 'flex';
             
             const messageInput = document.getElementById('messageInput');
             if (messageInput) {

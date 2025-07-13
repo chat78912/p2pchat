@@ -36,6 +36,13 @@ body {
     align-items: center;
 }
 
+.mode-selector-container {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
 .connection-mode {
     display: flex;
     gap: 4px;
@@ -64,6 +71,99 @@ body {
     background: #667eea;
     color: white;
     box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
+}
+
+/* 公网房间控制区域 */
+.internet-room-controls {
+    display: flex;
+    align-items: center;
+}
+
+.room-input-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 20px;
+    padding: 4px;
+    border: 2px solid rgba(102, 126, 234, 0.2);
+    transition: all 0.3s ease;
+}
+
+.room-input-group:focus-within {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.room-input {
+    border: none;
+    outline: none;
+    background: transparent;
+    padding: 8px 12px;
+    font-size: 14px;
+    color: #334155;
+    width: 120px;
+    font-weight: 500;
+}
+
+.room-input::placeholder {
+    color: #94a3b8;
+}
+
+.btn-join, .btn-leave {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.btn-join {
+    background: #667eea;
+    color: white;
+}
+
+.btn-join:hover {
+    background: #5a67d8;
+    transform: translateY(-1px);
+}
+
+.btn-join:active {
+    transform: translateY(0);
+}
+
+.btn-leave {
+    background: #f87171;
+    color: white;
+}
+
+.btn-leave:hover {
+    background: #ef4444;
+    transform: translateY(-1px);
+}
+
+.btn-leave:active {
+    transform: translateY(0);
+}
+
+/* 局域网状态区域 */
+.lan-status {
+    display: flex;
+    align-items: center;
+}
+
+.auto-status {
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 500;
+    font-style: italic;
+    background: rgba(100, 116, 139, 0.1);
+    padding: 6px 12px;
+    border-radius: 12px;
+    border-left: 3px solid #64748b;
 }
 
 .server-controls {
@@ -652,5 +752,27 @@ body {
         font-size: 13px;
         padding: 10px 16px;
         max-width: 90%;
+    }
+    
+    /* 响应式优化 */
+    .mode-selector-container {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .room-input {
+        width: 100px;
+        font-size: 13px;
+    }
+    
+    .btn-join, .btn-leave {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+    
+    .auto-status {
+        font-size: 13px;
+        padding: 4px 8px;
     }
 }
