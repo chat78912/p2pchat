@@ -951,11 +951,19 @@ class BaseChatMode {
             this.fileReceivers.set(metadata.fileId, receiver);
         }
         
-        // 移除offer UI
+        // 移除offer UI，显示进度
         const offerElement = document.getElementById(`file-offer-${metadata.fileId}`);
         if (offerElement) {
             offerElement.remove();
         }
+        
+        // 记录开始时间用于计算速度
+        receiver.startTime = Date.now();
+        receiver.lastUpdateTime = Date.now();
+        receiver.lastReceivedBytes = 0;
+        
+        // 显示文件接收进度
+        this.showFileProgress(metadata.fileId, metadata.fileName, 0, metadata.fileSize);
         console.log(`开始接收文件: ${metadata.fileName} (${metadata.totalChunks} 块)`);
     }
     
@@ -970,13 +978,37 @@ class BaseChatMode {
         receiver.chunks[chunkData.chunkIndex] = chunkData.data;
         receiver.receivedChunks++;
         
+        // 计算进度和速度
+        const progress = (receiver.receivedChunks / receiver.metadata.totalChunks) * 100;
+        const currentTime = Date.now();
+        const receivedBytes = (receiver.receivedChunks * receiver.metadata.chunkSize) || (receiver.receivedChunks * 64 * 1024);
+        
+        // 计算速度（每秒更新一次）
+        if (currentTime - receiver.lastUpdateTime >= 1000) {
+            const timeDiff = (currentTime - receiver.lastUpdateTime) / 1000;
+            const bytesDiff = receivedBytes - receiver.lastReceivedBytes;
+            const speed = bytesDiff / timeDiff;
+            
+            receiver.lastUpdateTime = currentTime;
+            receiver.lastReceivedBytes = receivedBytes;
+            
+            this.updateFileProgress(chunkData.fileId, progress, speed);
+        } else {
+            this.updateFileProgress(chunkData.fileId, progress);
+        }
+        
         // 检查是否接收完成
         if (receiver.receivedChunks === receiver.metadata.totalChunks) {
             // 重组文件
             const completeData = receiver.chunks.join('');
             
+            // 移除进度条
+            this.removeFileProgress(chunkData.fileId);
+            
             // 接收完成提示
-            this.showNotification('✅ 文件接收完成');
+            const totalTime = (Date.now() - receiver.startTime) / 1000;
+            const avgSpeed = receiver.metadata.fileSize / totalTime;
+            this.showNotification(`✅ 文件接收完成 (平均速度: ${this.formatSpeed(avgSpeed)})`);
             
             // 根据文件类型显示
             if (receiver.metadata.fileType && receiver.metadata.fileType.startsWith('image/')) {
@@ -1221,6 +1253,16 @@ class BaseChatMode {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    formatSpeed(bytesPerSecond) {
+        if (bytesPerSecond === 0) return '0 B/s';
+        
+        const k = 1024;
+        const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+        const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
+        
+        return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
     
     dataURLtoBlob(dataURL) {
@@ -1509,7 +1551,10 @@ class BaseChatMode {
             chunkSize: chunkSize,
             peerId: peerId,
             isPaused: false,
-            sendNextChunk: null
+            sendNextChunk: null,
+            startTime: Date.now(),
+            lastUpdateTime: Date.now(),
+            lastSentBytes: 0
         };
         
         // 定义发送下一个块的函数
@@ -1559,9 +1604,24 @@ class BaseChatMode {
                         
                         sender.currentChunk++;
                         
-                        // 更新进度
+                        // 更新进度和速度
                         const progress = (sender.currentChunk / totalChunks) * 100;
-                        this.updateSendingProgress(fileId, progress);
+                        const currentTime = Date.now();
+                        const sentBytes = sender.currentChunk * chunkSize;
+                        
+                        // 计算速度（每秒更新一次）
+                        if (currentTime - sender.lastUpdateTime >= 1000) {
+                            const timeDiff = (currentTime - sender.lastUpdateTime) / 1000;
+                            const bytesDiff = sentBytes - sender.lastSentBytes;
+                            const speed = bytesDiff / timeDiff;
+                            
+                            sender.lastUpdateTime = currentTime;
+                            sender.lastSentBytes = sentBytes;
+                            
+                            this.updateSendingProgress(fileId, progress, speed);
+                        } else {
+                            this.updateSendingProgress(fileId, progress);
+                        }
                         
                         // 发送下一个块，根据缓冲区状态调整延迟
                         if (sender.currentChunk < totalChunks) {
@@ -1596,13 +1656,14 @@ class BaseChatMode {
         sender.sendNextChunk();
     }
     
-    updateSendingProgress(fileId, progress) {
+    updateSendingProgress(fileId, progress, speed = null) {
         const offerElement = document.getElementById(`file-offer-${fileId}`);
         if (offerElement) {
             let statusDiv = offerElement.querySelector('.file-status');
             if (statusDiv) {
+                const speedText = speed ? ` - ${this.formatSpeed(speed)}` : '';
                 statusDiv.innerHTML = `
-                    <div>发送中: ${Math.round(progress)}%</div>
+                    <div>发送中: ${Math.round(progress)}%${speedText}</div>
                     <div style="width: 100px; height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 4px;">
                         <div style="width: ${progress}%; height: 100%; background: #10b981; border-radius: 2px; transition: width 0.3s;"></div>
                     </div>
@@ -1612,11 +1673,19 @@ class BaseChatMode {
     }
     
     fileSendingComplete(fileId) {
+        const sender = this.fileSenders.get(fileId);
         const offerElement = document.getElementById(`file-offer-${fileId}`);
         if (offerElement) {
             offerElement.remove();
         }
-        this.showNotification('✅ 文件发送完成');
+        
+        if (sender) {
+            const totalTime = (Date.now() - sender.startTime) / 1000;
+            const avgSpeed = sender.file.size / totalTime;
+            this.showNotification(`✅ 文件发送完成 (平均速度: ${this.formatSpeed(avgSpeed)})`);
+        } else {
+            this.showNotification('✅ 文件发送完成');
+        }
     }
     
     prepareFileReceiver(offer) {
@@ -1736,7 +1805,7 @@ class BaseChatMode {
     }
     
     // 文件进度显示方法
-    showFileProgress(fileId, fileName, progress = 0) {
+    showFileProgress(fileId, fileName, progress = 0, fileSize = 0) {
         const progressWrapper = document.createElement('div');
         progressWrapper.className = 'message-wrapper other';
         progressWrapper.id = `progress-${fileId}`;
@@ -1747,8 +1816,14 @@ class BaseChatMode {
         const progressText = document.createElement('div');
         progressText.className = 'file-progress-text';
         progressText.innerHTML = `
-            <span>接收文件: ${fileName}</span>
-            <span class="progress-percent">${Math.round(progress)}%</span>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>接收文件: ${fileName}</span>
+                <span class="progress-percent">${Math.round(progress)}%</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 11px; color: #9ca3af;">
+                <span class="file-size">${fileSize ? this.formatFileSize(fileSize) : ''}</span>
+                <span class="transfer-speed"></span>
+            </div>
         `;
         
         const progressBar = document.createElement('div');
@@ -1773,7 +1848,7 @@ class BaseChatMode {
         }
     }
     
-    updateFileProgress(fileId, progress) {
+    updateFileProgress(fileId, progress, speed = null) {
         const progressWrapper = document.getElementById(`progress-${fileId}`);
         if (progressWrapper) {
             const progressFill = progressWrapper.querySelector('.file-progress-fill');
@@ -1784,6 +1859,14 @@ class BaseChatMode {
             }
             if (progressPercent) {
                 progressPercent.textContent = `${Math.round(progress)}%`;
+            }
+            
+            // 更新速度显示
+            if (speed !== null) {
+                const speedElement = progressWrapper.querySelector('.transfer-speed');
+                if (speedElement) {
+                    speedElement.textContent = `速度: ${this.formatSpeed(speed)}`;
+                }
             }
         }
     }
