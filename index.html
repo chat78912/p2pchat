@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P聊天室 - 智能自动连接</title>
+    <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="room-section" id="modeSection">
+            <div class="section-header">
+                <div class="connection-mode">
+                    <button class="mode-btn active" id="lanMode" data-mode="lan">局域网</button>
+                    <button class="mode-btn" id="internetMode" data-mode="internet">公网</button>
+                </div>
+                <div class="connection-status status-disconnected" id="connectionStatus">
+                    <div class="status-content">
+                        <div class="status-header">
+                            <span class="status-dot"></span>
+                            <span class="status-text">离线</span>
+                        </div>
+                        <div class="status-details"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 局域网模式：自动连接状态 -->
+            <div class="auto-connect-info" id="autoConnectInfo" style="display: none;">
+                <div class="auto-status" id="autoStatus"></div>
+            </div>
+            
+            <!-- 公网模式：手动输入（默认隐藏） -->
+            <div class="manual-connect-info" id="manualConnectInfo" style="display: none;">
+                <div class="room-controls">
+                    <input type="text" id="roomInput" placeholder="输入房间号..." maxlength="20">
+                    <button class="btn btn-primary" id="joinBtn">加入房间</button>
+                    <button class="btn btn-secondary" id="leaveBtn" style="display: none;">离开房间</button>
+                </div>
+            </div>
+            
+        </div>
+
+        <div class="chat-messages" id="chatMessages">
+        </div>
+
+        <div class="chat-input">
+            <div class="input-group">
+                <input type="text" id="messageInput" placeholder="检测到同网段用户后即可开始聊天..." disabled>
+                <button class="btn btn-primary" id="sendBtn" disabled>发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="assets/config.js"></script>
+    <script src="assets/mode-selector.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "servers": [
+    {
+      "url": "wss://chat.canghai.org",
+      "name": "主服务器",
+      "priority": 1
+    }
+  ]
+}
