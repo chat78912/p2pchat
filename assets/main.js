@@ -362,6 +362,38 @@ class BaseChatMode {
             if (event.key === 'Enter') this.sendChatMessage();
         });
         
+        // 输入框粘贴事件
+        this.domElements.messageInput.addEventListener('paste', (event) => {
+            const items = (event.clipboardData || window.clipboardData).items;
+            
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                
+                // 检查是否为文件
+                if (item.kind === 'file') {
+                    let file = item.getAsFile();
+                    if (file) {
+                        // 如果是粘贴的图片且没有文件名，自动生成文件名
+                        if (file.type.startsWith('image/') && (!file.name || file.name === 'image.png')) {
+                            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                            const extension = file.type.split('/')[1] || 'png';
+                            
+                            // 创建新的File对象，带有自定义名称
+                            file = new File([file], `粘贴图片-${timestamp}.${extension}`, {
+                                type: file.type,
+                                lastModified: file.lastModified
+                            });
+                        }
+                        
+                        event.preventDefault(); // 阻止默认粘贴行为
+                        this.handleFileSelection(file);
+                        this.showNotification(`📎 已粘贴文件: ${file.name}`);
+                        break;
+                    }
+                }
+            }
+        });
+        
         // 文件相关事件
         this.domElements.attachButton.addEventListener('click', () => {
             this.domElements.fileInput.click();
@@ -376,6 +408,9 @@ class BaseChatMode {
         
         // 拖放事件处理
         this.setupDragAndDrop();
+        
+        // 全局粘贴支持
+        this.setupGlobalPaste();
     }
     
     // 设置拖放功能
@@ -409,6 +444,45 @@ class BaseChatMode {
             if (files.length > 0) {
                 // 支持多文件，但这里只处理第一个
                 this.handleFileSelection(files[0]);
+            }
+        });
+    }
+    
+    // 设置全局粘贴功能
+    setupGlobalPaste() {
+        document.addEventListener('paste', (event) => {
+            // 如果当前焦点在输入框，则由输入框的粘贴事件处理
+            if (document.activeElement === this.domElements.messageInput) {
+                return;
+            }
+            
+            const items = (event.clipboardData || window.clipboardData).items;
+            
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                
+                // 检查是否为文件
+                if (item.kind === 'file') {
+                    let file = item.getAsFile();
+                    if (file) {
+                        // 如果是粘贴的图片且没有文件名，自动生成文件名
+                        if (file.type.startsWith('image/') && (!file.name || file.name === 'image.png')) {
+                            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                            const extension = file.type.split('/')[1] || 'png';
+                            
+                            // 创建新的File对象，带有自定义名称
+                            file = new File([file], `粘贴图片-${timestamp}.${extension}`, {
+                                type: file.type,
+                                lastModified: file.lastModified
+                            });
+                        }
+                        
+                        event.preventDefault(); // 阻止默认粘贴行为
+                        this.handleFileSelection(file);
+                        this.showNotification(`📎 已粘贴文件: ${file.name}`);
+                        break;
+                    }
+                }
             }
         });
     }
@@ -722,7 +796,7 @@ class BaseChatMode {
     
     sendFileData(fileData) {
         let sentToAnyPeer = false;
-        const chunkSize = 16 * 1024; // 16KB chunks
+        const chunkSize = 1024 * 1024; // 1MB chunks for LAN speed
         const totalChunks = Math.ceil(fileData.data.length / chunkSize);
         
         // 发送文件元数据
@@ -761,7 +835,7 @@ class BaseChatMode {
                         if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
                             peerData.dataChannel.send(JSON.stringify(chunkData));
                         }
-                    }, i * 50); // 延迟发送，避免拥塞
+                    }, i * 5); // 减少延迟，LAN环境下提升速度
                 }
                 
                 sentToAnyPeer = true;
@@ -857,14 +931,11 @@ class BaseChatMode {
             this.fileReceivers.set(metadata.fileId, receiver);
         }
         
-        // 移除offer UI，显示进度
+        // 移除offer UI
         const offerElement = document.getElementById(`file-offer-${metadata.fileId}`);
         if (offerElement) {
             offerElement.remove();
         }
-        
-        // 显示文件接收进度
-        this.showFileProgress(metadata.fileId, metadata.fileName, 0);
         console.log(`开始接收文件: ${metadata.fileName} (${metadata.totalChunks} 块)`);
     }
     
@@ -879,17 +950,13 @@ class BaseChatMode {
         receiver.chunks[chunkData.chunkIndex] = chunkData.data;
         receiver.receivedChunks++;
         
-        // 更新进度
-        const progress = (receiver.receivedChunks / receiver.metadata.totalChunks) * 100;
-        this.updateFileProgress(chunkData.fileId, progress);
-        
         // 检查是否接收完成
         if (receiver.receivedChunks === receiver.metadata.totalChunks) {
             // 重组文件
             const completeData = receiver.chunks.join('');
             
-            // 移除进度条
-            this.removeFileProgress(chunkData.fileId);
+            // 接收完成提示
+            this.showNotification('✅ 文件接收完成');
             
             // 根据文件类型显示
             if (receiver.metadata.fileType && receiver.metadata.fileType.startsWith('image/')) {
@@ -1390,7 +1457,7 @@ class BaseChatMode {
     
     // 开始实时发送文件（支持断点续传）
     startFileSending(file, fileId, peerId) {
-        const chunkSize = 64 * 1024; // 64KB chunks for better performance
+        const chunkSize = 2 * 1024 * 1024; // 2MB chunks for LAN speed
         const totalChunks = Math.ceil(file.size / chunkSize);
         let currentChunk = 0;
         
@@ -1457,7 +1524,7 @@ class BaseChatMode {
                     
                     // 发送下一个块
                     if (sender.currentChunk < totalChunks) {
-                        setTimeout(() => sender.sendNextChunk(), 10); // 小延迟避免阻塞
+                        setTimeout(() => sender.sendNextChunk(), 1); // 最小延迟，局域网环境
                     } else {
                         // 发送完成
                         this.fileSendingComplete(fileId);
