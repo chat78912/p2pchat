@@ -644,6 +644,9 @@ class BaseChatMode {
                 case 'file-cancel':
                     this.handleFileCancel(message, peerId);
                     break;
+                case 'file-cancel-receive':
+                    this.handleFileCancelReceive(message, peerId);
+                    break;
                 case 'file-metadata':
                     this.handleFileMetadata(message, peerId);
                     break;
@@ -865,8 +868,8 @@ class BaseChatMode {
         receiver.lastUpdateTime = Date.now();
         receiver.lastReceivedBytes = 0;
         
-        // 显示文件接收进度
-        this.showFileProgress(metadata.fileId, metadata.fileName, 0, metadata.fileSize);
+        // 显示文件接收进度（使用统一方法）
+        this.showFileProgress(metadata.fileId, metadata.fileName, 0, metadata.fileSize, false, metadata.userInfo);
         console.log(`开始接收文件: ${metadata.fileName} (${metadata.totalChunks} 块)`);
     }
     
@@ -913,23 +916,29 @@ class BaseChatMode {
             const avgSpeed = receiver.metadata.fileSize / totalTime;
             this.showNotification(`✅ 文件接收完成 (平均速度: ${this.formatSpeed(avgSpeed)})`);
             
-            // 根据文件类型显示
-            if (receiver.metadata.fileType && receiver.metadata.fileType.startsWith('image/')) {
-                this.displayImage({
-                    ...receiver.metadata,
-                    data: completeData
-                }, false);
-            } else {
-                // 创建Blob和下载链接
-                const blob = this.dataURLtoBlob(completeData);
-                const url = URL.createObjectURL(blob);
-                
-                this.displayFile({
-                    ...receiver.metadata,
-                    data: url,
-                    blob: blob
-                }, false);
-            }
+            // 创建Blob并自动触发下载
+            const blob = this.dataURLtoBlob(completeData);
+            const url = URL.createObjectURL(blob);
+            
+            // 创建隐藏的下载链接并触发点击
+            const downloadLink = document.createElement('a');
+            downloadLink.href = url;
+            downloadLink.download = receiver.metadata.fileName;
+            downloadLink.style.display = 'none';
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            
+            // 延迟释放URL，确保下载开始
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 1000);
+            
+            // 在聊天记录中显示已接收的文件信息（不是实际文件，只是记录）
+            this.displayFileRecord({
+                ...receiver.metadata,
+                isReceived: true
+            }, false);
             
             // 清理接收器
             this.fileReceivers.delete(chunkData.fileId);
@@ -1134,10 +1143,28 @@ class BaseChatMode {
         this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
     }
     
-    getFileIcon(fileType) {
-        if (!fileType) return '📄';
+    getFileIcon(fileNameOrType) {
+        // 支持通过文件名或MIME类型获取图标
+        let fileType = fileNameOrType;
         
-        // 根据MIME类型返回对应的emoji图标
+        // 如果是文件名，提取扩展名
+        if (fileNameOrType && fileNameOrType.includes('.')) {
+            const ext = fileNameOrType.split('.').pop().toLowerCase();
+            // 根据扩展名判断类型
+            if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext)) return '🖼️';
+            if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm'].includes(ext)) return '🎥';
+            if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a'].includes(ext)) return '🎵';
+            if (ext === 'pdf') return '📑';
+            if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return '📦';
+            if (['doc', 'docx'].includes(ext)) return '📝';
+            if (['xls', 'xlsx'].includes(ext)) return '📊';
+            if (['ppt', 'pptx'].includes(ext)) return '📈';
+            if (['txt', 'text'].includes(ext)) return '📃';
+            if (['js', 'json', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'h'].includes(ext)) return '💻';
+        }
+        
+        // 如果是MIME类型
+        if (!fileType) return '📄';
         if (fileType.startsWith('image/')) return '🖼️';
         if (fileType.startsWith('video/')) return '🎥';
         if (fileType.startsWith('audio/')) return '🎵';
@@ -1170,6 +1197,60 @@ class BaseChatMode {
         const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
         
         return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    // 显示文件记录（仅显示文件信息，不包含实际内容）
+    displayFileRecord(fileData, isOwn) {
+        const messageWrapper = document.createElement('div');
+        messageWrapper.className = `message-wrapper ${isOwn ? 'own' : 'other'}`;
+        
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        const avatar = document.createElement('img');
+        avatar.className = 'message-avatar';
+        avatar.src = fileData.userInfo.avatar;
+        avatar.alt = fileData.userInfo.name;
+        
+        const headerText = document.createElement('div');
+        headerText.className = 'message-header-text';
+        
+        const name = document.createElement('span');
+        name.className = 'message-name';
+        name.textContent = fileData.userInfo.name;
+        
+        const time = document.createElement('span');
+        time.className = 'message-time';
+        time.textContent = new Date(fileData.timestamp || Date.now()).toLocaleTimeString();
+        
+        headerText.appendChild(name);
+        headerText.appendChild(time);
+        
+        messageHeader.appendChild(avatar);
+        messageHeader.appendChild(headerText);
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${isOwn ? 'message-own' : 'message-other'}`;
+        
+        const fileRecord = document.createElement('div');
+        fileRecord.className = 'file-record';
+        fileRecord.innerHTML = `
+            <div class="file-record-icon">${this.getFileIcon(fileData.fileName)}</div>
+            <div class="file-record-info">
+                <div class="file-record-name">${fileData.fileName}</div>
+                <div class="file-record-details">
+                    <span class="file-size">${this.formatFileSize(fileData.fileSize)}</span>
+                    <span class="file-status">${isOwn ? '已发送' : '已接收'}</span>
+                </div>
+            </div>
+        `;
+        
+        messageDiv.appendChild(fileRecord);
+        messageWrapper.appendChild(messageHeader);
+        messageWrapper.appendChild(messageDiv);
+        
+        this.domElements.chatMessages.appendChild(messageWrapper);
+        this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
     }
     
     dataURLtoBlob(dataURL) {
@@ -1418,7 +1499,7 @@ class BaseChatMode {
     }
     
     handleFileCancel(message, peerId) {
-        // 处理文件取消
+        // 处理发送方取消文件传输
         const receiver = this.fileReceivers?.get(message.fileId);
         if (receiver) {
             // 清理接收器
@@ -1430,6 +1511,23 @@ class BaseChatMode {
             // 显示取消通知
             const fileName = receiver.metadata?.fileName || '文件';
             this.showNotification(`⚠️ 发送方取消了文件传输: ${fileName}`);
+        }
+    }
+    
+    handleFileCancelReceive(message, peerId) {
+        // 处理接收方取消文件传输
+        const sender = this.fileSenders?.get(message.fileId);
+        if (sender) {
+            // 停止发送
+            sender.isPaused = true;
+            
+            // 从发送队列中移除
+            this.fileSenders.delete(message.fileId);
+            
+            // 移除进度条UI
+            this.removeFileProgress(message.fileId);
+            
+            this.showNotification(`⚠️ 接收方取消了文件传输: ${sender.file.name}`);
         }
     }
     
@@ -1628,8 +1726,8 @@ class BaseChatMode {
             const avgSpeed = sender.file.size / totalTime;
             this.showNotification(`✅ 文件发送完成 (平均速度: ${this.formatSpeed(avgSpeed)})`);
             
-            // 显示已发送的文件/图片
-            const fileInfo = {
+            // 显示文件发送记录
+            this.displayFileRecord({
                 fileId: fileId,
                 fileName: sender.file.name,
                 fileType: sender.file.type,
@@ -1637,27 +1735,11 @@ class BaseChatMode {
                 userId: this.currentUserId,
                 userInfo: this.currentUserInfo,
                 timestamp: Date.now()
-            };
+            }, true);
             
-            if (sender.file.type && sender.file.type.startsWith('image/')) {
-                // 对于图片，读取并显示
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    this.displayImage({
-                        ...fileInfo,
-                        data: e.target.result
-                    }, true);
-                };
-                reader.readAsDataURL(sender.file);
-            } else {
-                // 对于其他文件，创建下载链接
-                const url = URL.createObjectURL(sender.file);
-                this.displayFile({
-                    ...fileInfo,
-                    data: url,
-                    blob: sender.file
-                }, true);
-            }
+            // 清理发送器
+            this.fileSenders.delete(fileId);
+            this.pendingFiles?.delete(fileId);
         } else {
             this.showNotification('✅ 文件发送完成');
         }
@@ -1779,84 +1861,95 @@ class BaseChatMode {
         return div.innerHTML;
     }
     
-    // 文件进度显示方法
-    showFileProgress(fileId, fileName, progress = 0, fileSize = 0) {
+    // 统一的文件进度显示方法（适用于发送和接收）
+    showFileProgress(fileId, fileName, progress = 0, fileSize = 0, isOwn = false, userInfo = null) {
         const progressWrapper = document.createElement('div');
-        progressWrapper.className = 'message-wrapper other';
+        progressWrapper.className = `message-wrapper ${isOwn ? 'own' : 'other'}`;
         progressWrapper.id = `progress-${fileId}`;
         
-        // 获取文件接收器的元数据，包含发送者信息
-        const receiver = this.fileReceivers.get(fileId);
-        const userInfo = receiver && receiver.metadata ? receiver.metadata.userInfo : null;
+        // 添加消息头部
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
         
-        if (userInfo) {
-            // 添加消息头部（与发送时保持一致）
-            const messageHeader = document.createElement('div');
-            messageHeader.className = 'message-header';
-            
-            const avatar = document.createElement('img');
-            avatar.className = 'message-avatar';
-            avatar.src = userInfo.avatar;
-            avatar.alt = userInfo.name;
-            
-            const headerText = document.createElement('div');
-            headerText.className = 'message-header-text';
-            
-            const name = document.createElement('span');
-            name.className = 'message-name';
-            name.textContent = userInfo.name;
-            
-            const time = document.createElement('span');
-            time.className = 'message-time';
-            time.textContent = new Date().toLocaleTimeString();
-            
-            headerText.appendChild(name);
-            headerText.appendChild(time);
-            
-            messageHeader.appendChild(avatar);
-            messageHeader.appendChild(headerText);
-            
-            progressWrapper.appendChild(messageHeader);
-        }
+        const avatar = document.createElement('img');
+        avatar.className = 'message-avatar';
+        avatar.src = userInfo ? userInfo.avatar : this.currentUserInfo.avatar;
+        avatar.alt = userInfo ? userInfo.name : this.currentUserInfo.name;
+        
+        const headerText = document.createElement('div');
+        headerText.className = 'message-header-text';
+        
+        const name = document.createElement('span');
+        name.className = 'message-name';
+        name.textContent = userInfo ? userInfo.name : this.currentUserInfo.name;
+        
+        const time = document.createElement('span');
+        time.className = 'message-time';
+        time.textContent = new Date().toLocaleTimeString();
+        
+        headerText.appendChild(name);
+        headerText.appendChild(time);
+        
+        messageHeader.appendChild(avatar);
+        messageHeader.appendChild(headerText);
+        
+        progressWrapper.appendChild(messageHeader);
         
         const messageDiv = document.createElement('div');
-        messageDiv.className = 'message message-other';
+        messageDiv.className = `message ${isOwn ? 'message-own' : 'message-other'}`;
         
-        const progressDiv = document.createElement('div');
-        progressDiv.className = 'file-progress';
-        
-        const progressText = document.createElement('div');
-        progressText.className = 'file-progress-text';
-        progressText.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>接收文件: ${fileName}</span>
+        // 创建现代化的进度卡片
+        const progressCard = document.createElement('div');
+        progressCard.className = 'file-progress-card';
+        progressCard.innerHTML = `
+            <div class="file-progress-header">
+                <div class="file-progress-icon">${this.getFileIcon(fileName)}</div>
+                <div class="file-progress-info">
+                    <div class="file-progress-name">${fileName}</div>
+                    <div class="file-progress-details">
+                        <span class="file-size">${this.formatFileSize(fileSize)}</span>
+                        <span class="transfer-speed"></span>
+                    </div>
+                </div>
+                <button class="file-progress-cancel" data-file-id="${fileId}">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="file-progress-status">
+                <span class="progress-label">${isOwn ? '发送中' : '接收中'}</span>
                 <span class="progress-percent">${Math.round(progress)}%</span>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 11px; color: #9ca3af;">
-                <span class="file-size">${fileSize ? this.formatFileSize(fileSize) : ''}</span>
-                <span class="transfer-speed"></span>
+            <div class="file-progress-bar">
+                <div class="file-progress-fill" style="width: ${progress}%"></div>
             </div>
         `;
         
-        const progressBar = document.createElement('div');
-        progressBar.className = 'file-progress-bar';
-        
-        const progressFill = document.createElement('div');
-        progressFill.className = 'file-progress-fill';
-        progressFill.style.width = `${progress}%`;
-        
-        progressBar.appendChild(progressFill);
-        progressDiv.appendChild(progressText);
-        progressDiv.appendChild(progressBar);
-        messageDiv.appendChild(progressDiv);
+        messageDiv.appendChild(progressCard);
         progressWrapper.appendChild(messageDiv);
         
         this.domElements.chatMessages.appendChild(progressWrapper);
         this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
         
+        // 添加取消按钮事件
+        const cancelBtn = progressCard.querySelector('.file-progress-cancel');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                if (isOwn) {
+                    this.cancelFileSending(fileId);
+                } else {
+                    this.cancelFileReceiving(fileId);
+                }
+            });
+        }
+        
         // 保存进度元素引用
-        if (receiver) {
-            receiver.progressElement = progressWrapper;
+        if (!isOwn) {
+            const receiver = this.fileReceivers.get(fileId);
+            if (receiver) {
+                receiver.progressElement = progressWrapper;
+            }
         }
     }
     
@@ -1877,7 +1970,7 @@ class BaseChatMode {
             if (speed !== null) {
                 const speedElement = progressWrapper.querySelector('.transfer-speed');
                 if (speedElement) {
-                    speedElement.textContent = `速度: ${this.formatSpeed(speed)}`;
+                    speedElement.textContent = `• ${this.formatSpeed(speed)}`;
                 }
             }
         }
@@ -1887,6 +1980,31 @@ class BaseChatMode {
         const progressWrapper = document.getElementById(`progress-${fileId}`);
         if (progressWrapper) {
             progressWrapper.remove();
+        }
+    }
+    
+    // 取消文件接收
+    cancelFileReceiving(fileId) {
+        const receiver = this.fileReceivers?.get(fileId);
+        if (receiver) {
+            // 清理接收器
+            this.fileReceivers.delete(fileId);
+            
+            // 移除进度条UI
+            this.removeFileProgress(fileId);
+            
+            // 发送取消通知给发送方
+            this.peerConnections.forEach((peerData) => {
+                if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                    peerData.dataChannel.send(JSON.stringify({
+                        type: 'file-cancel-receive',
+                        fileId: fileId,
+                        userId: this.currentUserId
+                    }));
+                }
+            });
+            
+            this.showNotification(`❌ 已取消接收: ${receiver.metadata?.fileName || '文件'}`);
         }
     }
     
@@ -1921,95 +2039,9 @@ class BaseChatMode {
         }
     }
     
-    // 显示文件发送进度（与接收进度保持一致的UI）
+    // 显示文件发送进度（使用统一方法）
     showFileSendProgress(fileId, fileName, progress = 0, fileSize = 0) {
-        const progressWrapper = document.createElement('div');
-        progressWrapper.className = 'message-wrapper own';
-        progressWrapper.id = `progress-${fileId}`;
-        
-        // 添加消息头部（发送者信息）
-        const messageHeader = document.createElement('div');
-        messageHeader.className = 'message-header';
-        
-        const avatar = document.createElement('img');
-        avatar.className = 'message-avatar';
-        avatar.src = this.currentUserInfo.avatar;
-        avatar.alt = this.currentUserInfo.name;
-        
-        const headerText = document.createElement('div');
-        headerText.className = 'message-header-text';
-        
-        const name = document.createElement('span');
-        name.className = 'message-name';
-        name.textContent = this.currentUserInfo.name;
-        
-        const time = document.createElement('span');
-        time.className = 'message-time';
-        time.textContent = new Date().toLocaleTimeString();
-        
-        headerText.appendChild(name);
-        headerText.appendChild(time);
-        
-        messageHeader.appendChild(avatar);
-        messageHeader.appendChild(headerText);
-        
-        progressWrapper.appendChild(messageHeader);
-        
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'message message-own';
-        
-        const progressDiv = document.createElement('div');
-        progressDiv.className = 'file-progress';
-        
-        const progressText = document.createElement('div');
-        progressText.className = 'file-progress-text';
-        progressText.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <span>发送文件: ${fileName}</span>
-                    <button class="cancel-btn" data-file-id="${fileId}" style="
-                        padding: 4px 12px;
-                        background: rgba(255, 255, 255, 0.2);
-                        color: rgba(255, 255, 255, 0.9);
-                        border: 1px solid rgba(255, 255, 255, 0.3);
-                        border-radius: 12px;
-                        font-size: 12px;
-                        cursor: pointer;
-                        transition: all 0.2s ease;
-                    " onmouseover="this.style.background='rgba(255, 255, 255, 0.3)'" 
-                      onmouseout="this.style.background='rgba(255, 255, 255, 0.2)'">取消</button>
-                </div>
-                <span class="progress-percent">${Math.round(progress)}%</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 11px; color: #9ca3af;">
-                <span class="file-size">${fileSize ? this.formatFileSize(fileSize) : ''}</span>
-                <span class="transfer-speed"></span>
-            </div>
-        `;
-        
-        const progressBar = document.createElement('div');
-        progressBar.className = 'file-progress-bar';
-        
-        const progressFill = document.createElement('div');
-        progressFill.className = 'file-progress-fill';
-        progressFill.style.width = `${progress}%`;
-        
-        progressBar.appendChild(progressFill);
-        progressDiv.appendChild(progressText);
-        progressDiv.appendChild(progressBar);
-        messageDiv.appendChild(progressDiv);
-        progressWrapper.appendChild(messageDiv);
-        
-        this.domElements.chatMessages.appendChild(progressWrapper);
-        this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
-        
-        // 添加取消按钮的点击事件
-        const cancelBtn = progressWrapper.querySelector('.cancel-btn');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', () => {
-                this.cancelFileSending(fileId);
-            });
-        }
+        this.showFileProgress(fileId, fileName, progress, fileSize, true, this.currentUserInfo);
     }
 
     showNotification(text) {

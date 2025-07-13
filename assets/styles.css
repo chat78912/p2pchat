@@ -660,35 +660,180 @@ body {
     opacity: 0.5;
 }
 
-/* 文件传输进度 */
-.file-progress {
-    background: rgba(255, 255, 255, 0.9);
-    border-radius: 12px;
-    padding: 15px 20px;
+/* 现代化文件进度卡片 */
+.file-progress-card {
+    min-width: 280px;
+    max-width: 320px;
+}
+
+.file-progress-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.file-progress-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+}
+
+.file-progress-info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.file-progress-name {
+    font-weight: 600;
     font-size: 14px;
-    min-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 2px;
+}
+
+.message-own .file-progress-name {
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.message-other .file-progress-name {
+    color: #374151;
+}
+
+.file-progress-details {
+    display: flex;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.message-own .file-progress-details {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.message-other .file-progress-details {
+    color: #6b7280;
+}
+
+.file-progress-cancel {
+    background: none;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    color: currentColor;
+    opacity: 0.7;
+}
+
+.file-progress-cancel:hover {
+    opacity: 1;
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+.file-progress-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.progress-label {
+    font-weight: 500;
+}
+
+.message-own .progress-label {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.message-other .progress-label {
+    color: #64748b;
+}
+
+.progress-percent {
+    font-weight: 600;
+}
+
+.message-own .progress-percent {
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.message-other .progress-percent {
+    color: #374151;
 }
 
 .file-progress-bar {
     width: 100%;
-    height: 4px;
+    height: 6px;
     background: rgba(0, 0, 0, 0.1);
-    border-radius: 2px;
-    margin-top: 8px;
+    border-radius: 3px;
     overflow: hidden;
+}
+
+.message-own .file-progress-bar {
+    background: rgba(255, 255, 255, 0.2);
 }
 
 .file-progress-fill {
     height: 100%;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 2px;
+    border-radius: 3px;
     transition: width 0.3s ease;
 }
 
-.file-progress-text {
+/* 文件记录样式 */
+.file-record {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 12px;
+    min-width: 200px;
+}
+
+.file-record-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+}
+
+.file-record-info {
+    flex: 1;
+}
+
+.file-record-name {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 2px;
+}
+
+.message-own .file-record-name {
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.message-other .file-record-name {
+    color: #374151;
+}
+
+.file-record-details {
+    display: flex;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.message-own .file-record-details {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.message-other .file-record-details {
+    color: #6b7280;
+}
+
+.file-status {
+    font-weight: 500;
+}
+
+.transfer-speed {
+    font-weight: 500;
+    color: #10b981;
 }
 
 /* 拖放效果 */
