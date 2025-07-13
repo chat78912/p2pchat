@@ -1810,6 +1810,43 @@ class BaseChatMode {
         progressWrapper.className = 'message-wrapper other';
         progressWrapper.id = `progress-${fileId}`;
         
+        // 获取文件接收器的元数据，包含发送者信息
+        const receiver = this.fileReceivers.get(fileId);
+        const userInfo = receiver && receiver.metadata ? receiver.metadata.userInfo : null;
+        
+        if (userInfo) {
+            // 添加消息头部（与发送时保持一致）
+            const messageHeader = document.createElement('div');
+            messageHeader.className = 'message-header';
+            
+            const avatar = document.createElement('img');
+            avatar.className = 'message-avatar';
+            avatar.src = userInfo.avatar;
+            avatar.alt = userInfo.name;
+            
+            const headerText = document.createElement('div');
+            headerText.className = 'message-header-text';
+            
+            const name = document.createElement('span');
+            name.className = 'message-name';
+            name.textContent = userInfo.name;
+            
+            const time = document.createElement('span');
+            time.className = 'message-time';
+            time.textContent = new Date().toLocaleTimeString();
+            
+            headerText.appendChild(name);
+            headerText.appendChild(time);
+            
+            messageHeader.appendChild(avatar);
+            messageHeader.appendChild(headerText);
+            
+            progressWrapper.appendChild(messageHeader);
+        }
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message message-other';
+        
         const progressDiv = document.createElement('div');
         progressDiv.className = 'file-progress';
         
@@ -1836,13 +1873,13 @@ class BaseChatMode {
         progressBar.appendChild(progressFill);
         progressDiv.appendChild(progressText);
         progressDiv.appendChild(progressBar);
-        progressWrapper.appendChild(progressDiv);
+        messageDiv.appendChild(progressDiv);
+        progressWrapper.appendChild(messageDiv);
         
         this.domElements.chatMessages.appendChild(progressWrapper);
         this.domElements.chatMessages.scrollTop = this.domElements.chatMessages.scrollHeight;
         
         // 保存进度元素引用
-        const receiver = this.fileReceivers.get(fileId);
         if (receiver) {
             receiver.progressElement = progressWrapper;
         }
