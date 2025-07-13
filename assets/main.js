@@ -840,38 +840,34 @@ class BaseChatMode {
     fileReceivers = new Map(); // 存储正在接收的文件
     
     handleFileMetadata(metadata, peerId) {
-        // 更新已有的接收器或创建新的
+        // 获取接收器
         let receiver = this.fileReceivers.get(metadata.fileId);
-        if (receiver) {
-            // 更新元数据
-            receiver.metadata = metadata;
-            receiver.chunks = new Array(metadata.totalChunks);
-        } else {
-            // 初始化文件接收器
+        
+        if (!receiver) {
+            // 如果没有接收器，说明不是通过 acceptFileOffer 流程，创建一个
             receiver = {
                 metadata: metadata,
                 chunks: new Array(metadata.totalChunks),
                 receivedChunks: 0,
-                progressElement: null
+                progressElement: null,
+                startTime: Date.now(),
+                lastUpdateTime: Date.now(),
+                lastReceivedBytes: 0
             };
             this.fileReceivers.set(metadata.fileId, receiver);
+        } else {
+            // 更新元数据
+            receiver.metadata = metadata;
+            if (!receiver.isStreaming) {
+                receiver.chunks = new Array(metadata.totalChunks);
+            }
         }
         
-        // 移除offer UI，显示进度
-        const offerElement = document.getElementById(`file-offer-${metadata.fileId}`);
-        if (offerElement) {
-            offerElement.remove();
-        }
-        
-        // 记录开始时间用于计算速度
-        receiver.startTime = Date.now();
-        receiver.lastUpdateTime = Date.now();
-        receiver.lastReceivedBytes = 0;
-        
-        // 显示文件接收进度（使用统一方法）
+        // 显示文件接收进度
         this.showFileProgress(metadata.fileId, metadata.fileName, 0, metadata.fileSize, false, metadata.userInfo);
         console.log(`开始接收文件: ${metadata.fileName} (${metadata.totalChunks} 块)`);
     }
+    
     
     handleFileChunk(chunkData, peerId) {
         const receiver = this.fileReceivers.get(chunkData.fileId);
@@ -880,8 +876,34 @@ class BaseChatMode {
             return;
         }
         
-        // 存储数据块
-        receiver.chunks[chunkData.chunkIndex] = chunkData.data;
+        // 如果是流式下载模式
+        if (receiver.isStreaming) {
+            // 在第一个数据块到达时触发下载
+            if (!receiver.firstChunkReceived) {
+                receiver.firstChunkReceived = true;
+                
+                // 创建一个空的 Blob 作为初始下载
+                const initialBlob = new Blob([''], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(initialBlob);
+                receiver.downloadLink.href = url;
+                receiver.downloadLink.click();
+                
+                // 开始累积数据
+                receiver.chunks = [];
+            }
+            
+            // 将 base64 数据转换为二进制
+            const binaryData = atob(chunkData.data.split(',')[1] || chunkData.data);
+            const uint8Array = new Uint8Array(binaryData.length);
+            for (let i = 0; i < binaryData.length; i++) {
+                uint8Array[i] = binaryData.charCodeAt(i);
+            }
+            receiver.chunks.push(uint8Array);
+        } else {
+            // 非流式模式，按原来的方式处理
+            receiver.chunks[chunkData.chunkIndex] = chunkData.data;
+        }
+        
         receiver.receivedChunks++;
         
         // 计算进度和速度
@@ -905,9 +927,6 @@ class BaseChatMode {
         
         // 检查是否接收完成
         if (receiver.receivedChunks === receiver.metadata.totalChunks) {
-            // 重组文件
-            const completeData = receiver.chunks.join('');
-            
             // 移除进度条
             this.removeFileProgress(chunkData.fileId);
             
@@ -916,25 +935,42 @@ class BaseChatMode {
             const avgSpeed = receiver.metadata.fileSize / totalTime;
             this.showNotification(`✅ 文件接收完成 (平均速度: ${this.formatSpeed(avgSpeed)})`);
             
-            // 创建Blob并自动触发下载
-            const blob = this.dataURLtoBlob(completeData);
-            const url = URL.createObjectURL(blob);
+            if (receiver.isStreaming) {
+                // 流式下载模式，创建最终的完整文件
+                const fullBlob = new Blob(receiver.chunks, { type: receiver.metadata.fileType || 'application/octet-stream' });
+                const finalUrl = URL.createObjectURL(fullBlob);
+                
+                // 更新下载链接并再次触发下载
+                if (receiver.downloadLink) {
+                    receiver.downloadLink.href = finalUrl;
+                    receiver.downloadLink.click();
+                    
+                    // 清理
+                    setTimeout(() => {
+                        URL.revokeObjectURL(finalUrl);
+                        document.body.removeChild(receiver.downloadLink);
+                    }, 1000);
+                }
+            } else {
+                // 原有的处理方式
+                const completeData = receiver.chunks.join('');
+                const blob = this.dataURLtoBlob(completeData);
+                const url = URL.createObjectURL(blob);
+                
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.download = receiver.metadata.fileName;
+                downloadLink.style.display = 'none';
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                }, 1000);
+            }
             
-            // 创建隐藏的下载链接并触发点击
-            const downloadLink = document.createElement('a');
-            downloadLink.href = url;
-            downloadLink.download = receiver.metadata.fileName;
-            downloadLink.style.display = 'none';
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
-            
-            // 延迟释放URL，确保下载开始
-            setTimeout(() => {
-                URL.revokeObjectURL(url);
-            }, 1000);
-            
-            // 在聊天记录中显示已接收的文件信息（不是实际文件，只是记录）
+            // 在聊天记录中显示已接收的文件信息
             this.displayFileRecord({
                 ...receiver.metadata,
                 isReceived: true
@@ -1267,6 +1303,19 @@ class BaseChatMode {
         return new Blob([u8arr], { type: mime });
     }
     
+    dataURLtoArrayBuffer(dataURL) {
+        const arr = dataURL.split(',');
+        const bstr = atob(arr[1]);
+        const buffer = new ArrayBuffer(bstr.length);
+        const u8arr = new Uint8Array(buffer);
+        
+        for (let i = 0; i < bstr.length; i++) {
+            u8arr[i] = bstr.charCodeAt(i);
+        }
+        
+        return buffer;
+    }
+    
     // 文件传输请求处理
     handleFileOffer(offer, peerId) {
         // 显示文件接收请求
@@ -1417,6 +1466,9 @@ class BaseChatMode {
     }
     
     acceptFileOffer(offer, peerId) {
+        // 立即开始流式下载
+        this.startStreamDownload(offer, peerId);
+        
         // 发送接受响应
         const response = {
             type: 'file-accept',
@@ -1429,17 +1481,11 @@ class BaseChatMode {
             peerData.dataChannel.send(JSON.stringify(response));
         }
         
-        // 更新UI显示为准备接收
+        // 移除offer UI
         const offerElement = document.getElementById(`file-offer-${offer.fileId}`);
         if (offerElement) {
-            const buttonsDiv = offerElement.querySelector('.file-offer-container > div:last-child');
-            if (buttonsDiv) {
-                buttonsDiv.innerHTML = '<span style="color: #10b981;">准备接收文件...</span>';
-            }
+            offerElement.remove();
         }
-        
-        // 准备接收文件
-        this.prepareFileReceiver(offer);
     }
     
     rejectFileOffer(offer, peerId) {
@@ -1755,6 +1801,34 @@ class BaseChatMode {
             receivedChunks: 0,
             lastChunkTime: Date.now()
         });
+    }
+    
+    // 开始流式下载
+    startStreamDownload(offer, peerId) {
+        // 准备接收器
+        this.fileReceivers = this.fileReceivers || new Map();
+        
+        // 创建一个虚拟的下载链接
+        const downloadLink = document.createElement('a');
+        downloadLink.download = offer.fileName;
+        downloadLink.style.display = 'none';
+        document.body.appendChild(downloadLink);
+        
+        // 初始化接收器
+        const receiver = {
+            offer: offer,
+            metadata: null,
+            chunks: [],
+            receivedChunks: 0,
+            startTime: Date.now(),
+            lastUpdateTime: Date.now(),
+            lastReceivedBytes: 0,
+            isStreaming: true,
+            downloadLink: downloadLink,
+            firstChunkReceived: false
+        };
+        
+        this.fileReceivers.set(offer.fileId, receiver);
     }
     
     handleFileProgress(progress, peerId) {
