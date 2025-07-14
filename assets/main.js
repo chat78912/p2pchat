@@ -721,71 +721,17 @@ class BaseChatMode {
         
         dataChannel.onmessage = (event) => {
             // 检查是否为二进制消息
-            console.log('Message received:', typeof event.data, event.data.constructor.name);
             if (event.data instanceof ArrayBuffer) {
-                // 优先使用混合传输引擎
-                if (window.hybridTransferEngine) {
-                    try {
-                        const message = window.hybridTransferEngine.parseHybridMessage(event.data);
-                        
-                        // 处理混合传输数据块
-                        if (message.type === 'hybrid-chunk') {
-                            const receiver = this.hybridReceivers?.get(message.fileId);
-                            if (receiver) {
-                                window.hybridTransferEngine.handleHybridChunk(message, peerId, receiver);
-                            }
-                            return;
-                        } else if (message.type === 'speed-test') {
-                            // 忽略速度测试包
-                            return;
-                        }
-                    } catch (error) {
-                        console.warn('Failed to parse hybrid message:', error);
-                        // 继续尝试其他解析器
+                // 优先使用统一传输系统
+                if (window.unifiedTransfer) {
+                    const handled = window.unifiedTransfer.handlePacket(event.data);
+                    if (handled) {
+                        return; // 已被统一系统处理
                     }
                 }
                 
-                // 回退到其他处理器
-                if (window.robustStreamHandler) {
-                    try {
-                        const message = window.robustStreamHandler.parseMessage(event.data);
-                        
-                        // 处理鲁棒性流式数据块
-                        if (message.type === 'robust-chunk') {
-                            window.robustStreamHandler.handleRobustChunk(message, peerId);
-                            return;
-                        }
-                    } catch (error) {
-                        console.warn('Failed to parse robust message:', error);
-                    }
-                } else if (window.highPerformanceStreamHandler) {
-                    try {
-                        const message = window.highPerformanceStreamHandler.parseBinaryMessage(event.data);
-                        
-                        // 处理高性能流式数据块
-                        if (message.type === 'hp-chunk') {
-                            window.highPerformanceStreamHandler.handleHighPerformanceChunk(message, peerId);
-                            return;
-                        }
-                    } catch (error) {
-                        console.warn('Failed to parse high-performance message:', error);
-                    }
-                } else if (window.streamHandler) {
-                    try {
-                        const message = window.streamHandler.decodeMessage(event.data);
-                        
-                        // 处理流式数据块
-                        if (message.type === 'stream-chunk') {
-                            this.handleStreamChunk(message, peerId);
-                            return;
-                        }
-                    } catch (error) {
-                        console.warn('Failed to parse stream message:', error);
-                    }
-                }
-                
-                // 如果是未识别的二进制消息，直接返回，不要尝试解析为文本
-                console.warn('Unrecognized binary message type, ignoring');
+                // 如果是未识别的二进制消息，直接返回
+                console.warn('Unrecognized binary message, ignoring');
                 return;
             }
             
@@ -1704,17 +1650,8 @@ class BaseChatMode {
             offerElement.remove();
         }
         
-        // 优先使用混合传输引擎
-        if (window.hybridTransferEngine) {
-            this.startHybridFileSending(file, response.fileId, peerId);
-        } else if (window.robustStreamHandler) {
-            this.startRobustFileSending(file, response.fileId, peerId);
-        } else if (window.highPerformanceStreamHandler) {
-            this.startHighPerformanceFileSending(file, response.fileId, peerId);
-        } else {
-            // 回退到原有方式
-            this.startFileSending(file, response.fileId, peerId);
-        }
+        // 使用统一传输系统
+        this.startUnifiedFileSending(file, response.fileId, peerId);
     }
     
     handleFileReject(response, peerId) {
@@ -2647,17 +2584,8 @@ class BaseChatMode {
     }
     
     acceptFileOffer(offer, peerId) {
-        // 优先使用混合传输引擎接收
-        if (window.hybridTransferEngine) {
-            this.startHybridFileReceiving(offer, peerId);
-        } else if (window.robustStreamHandler) {
-            this.startRobustFileReceiving(offer, peerId);
-        } else if (window.highPerformanceStreamHandler) {
-            this.startHighPerformanceFileReceiving(offer, peerId);
-        } else {
-            // 回退到原有方式
-            this.startStreamDownload(offer, peerId);
-        }
+        // 使用统一传输系统接收
+        this.startUnifiedFileReceiving(offer, peerId);
         
         // 发送接受响应
         const response = {
@@ -2760,6 +2688,115 @@ class BaseChatMode {
         
         this.showFileProgress(metadata.fileId, metadata.fileName, 0, metadata.fileSize, false, metadata.userInfo);
         console.log(`开始接收文件: ${metadata.fileName} (${metadata.totalChunks} 块)`);
+    }
+    
+    /**
+     * 启动统一传输发送
+     */
+    async startUnifiedFileSending(file, fileId, peerId) {
+        try {
+            console.log(`🔒 启动统一传输发送: ${file.name}`);
+            
+            // 获取数据通道
+            const peerData = this.peerConnections.get(peerId);
+            if (!peerData || !peerData.dataChannel || peerData.dataChannel.readyState !== 'open') {
+                throw new Error('没有可用的连接');
+            }
+            
+            // 显示发送进度
+            this.showFileProgress(fileId, file.name, 0, file.size, true, this.currentUserInfo);
+            
+            // 使用统一传输系统
+            await window.unifiedTransfer.startSending(
+                file,
+                fileId,
+                peerData.dataChannel,
+                (progress, speed) => {
+                    // 更新进度
+                    this.updateFileProgress(fileId, progress, speed, true);
+                },
+                () => {
+                    // 完成回调
+                    console.log(`✅ 统一传输发送完成: ${file.name}`);
+                    this.pendingFiles?.delete(fileId);
+                    
+                    // 显示完成状态
+                    setTimeout(() => {
+                        this.hideFileProgress(fileId);
+                        this.displayFileRecord({
+                            fileName: file.name,
+                            fileSize: file.size,
+                            fileType: file.type,
+                            userInfo: this.currentUserInfo,
+                            timestamp: Date.now()
+                        }, true);
+                    }, 1000);
+                },
+                (error) => {
+                    // 错误回调
+                    console.error('❌ 统一传输发送失败:', error);
+                    this.pendingFiles?.delete(fileId);
+                    this.hideFileProgress(fileId);
+                    this.showNotification(`❌ 文件发送失败: ${error.message}`);
+                }
+            );
+            
+        } catch (error) {
+            console.error('启动统一传输发送失败:', error);
+            this.showNotification(`❌ 启动文件发送失败: ${error.message}`);
+        }
+    }
+    
+    /**
+     * 启动统一传输接收
+     */
+    async startUnifiedFileReceiving(offer, peerId) {
+        try {
+            console.log(`🔒 启动统一传输接收: ${offer.fileName}`);
+            
+            // 显示接收进度
+            this.showFileProgress(offer.fileId, offer.fileName, 0, offer.fileSize, false, offer.userInfo);
+            
+            // 使用统一传输系统
+            await window.unifiedTransfer.startReceiving(
+                {
+                    fileId: offer.fileId,
+                    fileName: offer.fileName,
+                    fileSize: offer.fileSize,
+                    fileType: offer.fileType
+                },
+                (progress, speed) => {
+                    // 更新进度
+                    this.updateFileProgress(offer.fileId, progress, speed, false);
+                },
+                () => {
+                    // 完成回调
+                    console.log(`✅ 统一传输接收完成: ${offer.fileName}`);
+                    
+                    // 显示完成状态
+                    setTimeout(() => {
+                        this.hideFileProgress(offer.fileId);
+                        this.displayFileRecord({
+                            fileName: offer.fileName,
+                            fileSize: offer.fileSize,
+                            fileType: offer.fileType,
+                            userInfo: offer.userInfo,
+                            timestamp: Date.now()
+                        }, false);
+                    }, 1000);
+                },
+                (error) => {
+                    // 错误回调
+                    console.error('❌ 统一传输接收失败:', error);
+                    this.hideFileProgress(offer.fileId);
+                    this.showNotification(`❌ 文件接收失败: ${error.message}`);
+                }
+            );
+            
+        } catch (error) {
+            console.error('启动统一传输接收失败:', error);
+            this.showNotification(`❌ 启动文件接收失败: ${error.message}`);
+        }
     }
     
     /**
