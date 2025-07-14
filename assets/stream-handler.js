@@ -19,10 +19,8 @@ class StreamHandler {
             maxRetries: 3 // 最大重试次数
         };
         
-        // 加载 StreamSaver.js 如果需要
-        if (!this.supportsFileSystemAccess) {
-            this.loadStreamSaver();
-        }
+        // 总是加载 StreamSaver.js 作为主要方案
+        this.loadStreamSaver();
     }
     
     /**
@@ -212,23 +210,21 @@ class StreamHandler {
      * 创建流式接收器
      */
     async createStreamReceiver(fileMetadata, onProgress, onComplete, onError) {
-        // 优先使用 File System Access API
-        if (this.supportsFileSystemAccess) {
-            try {
-                return await this.createFileSystemReceiver(fileMetadata, onProgress, onComplete, onError);
-            } catch (error) {
-                console.warn('File System Access API failed, falling back to StreamSaver:', error);
-                // 回退到 StreamSaver
-            }
-        }
-        
-        // 其次使用 StreamSaver
+        // 优先使用 StreamSaver（更稳定）
         if (this.supportsStreamSaver || window.streamSaver) {
             try {
                 return await this.createStreamSaverReceiver(fileMetadata, onProgress, onComplete, onError);
             } catch (error) {
-                console.warn('StreamSaver failed, falling back to memory:', error);
-                // 回退到内存方式
+                console.warn('StreamSaver failed, trying File System Access API:', error);
+            }
+        }
+        
+        // 其次尝试 File System Access API
+        if (this.supportsFileSystemAccess) {
+            try {
+                return await this.createFileSystemReceiver(fileMetadata, onProgress, onComplete, onError);
+            } catch (error) {
+                console.warn('File System Access API failed, falling back to memory:', error);
             }
         }
         
@@ -241,13 +237,9 @@ class StreamHandler {
      */
     async createFileSystemReceiver(fileMetadata, onProgress, onComplete, onError) {
         try {
-            // 显示文件保存对话框，使用简化的选项
+            // 显示文件保存对话框，不限制文件类型
             const handle = await window.showSaveFilePicker({
-                suggestedName: fileMetadata.fileName,
-                types: [{
-                    description: 'All files',
-                    accept: { '*/*': ['.*'] }
-                }]
+                suggestedName: fileMetadata.fileName
             });
             
             // 创建可写流
