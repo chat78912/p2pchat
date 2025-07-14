@@ -2706,6 +2706,9 @@ class BaseChatMode {
             // 显示发送进度
             this.showFileProgress(fileId, file.name, 0, file.size, true, this.currentUserInfo);
             
+            // 保存this引用以在回调中使用
+            const self = this;
+            
             // 使用统一传输系统
             await window.unifiedTransfer.startSending(
                 file,
@@ -2713,21 +2716,21 @@ class BaseChatMode {
                 peerData.dataChannel,
                 (progress, speed) => {
                     // 更新进度
-                    this.updateFileProgress(fileId, progress, speed, true);
+                    self.updateFileProgress(fileId, progress, speed, true);
                 },
                 () => {
                     // 完成回调
                     console.log(`✅ 统一传输发送完成: ${file.name}`);
-                    this.pendingFiles?.delete(fileId);
+                    self.pendingFiles?.delete(fileId);
                     
                     // 显示完成状态
                     setTimeout(() => {
-                        this.hideFileProgress(fileId);
-                        this.displayFileRecord({
+                        self.hideFileProgress(fileId);
+                        self.displayFileRecord({
                             fileName: file.name,
                             fileSize: file.size,
                             fileType: file.type,
-                            userInfo: this.currentUserInfo,
+                            userInfo: self.currentUserInfo,
                             timestamp: Date.now()
                         }, true);
                     }, 1000);
@@ -2735,9 +2738,9 @@ class BaseChatMode {
                 (error) => {
                     // 错误回调
                     console.error('❌ 统一传输发送失败:', error);
-                    this.pendingFiles?.delete(fileId);
-                    this.hideFileProgress(fileId);
-                    this.showNotification(`❌ 文件发送失败: ${error.message}`);
+                    self.pendingFiles?.delete(fileId);
+                    self.hideFileProgress(fileId);
+                    self.showNotification(`❌ 文件发送失败: ${error.message}`);
                 }
             );
             
@@ -2757,6 +2760,9 @@ class BaseChatMode {
             // 显示接收进度
             this.showFileProgress(offer.fileId, offer.fileName, 0, offer.fileSize, false, offer.userInfo);
             
+            // 保存this引用以在回调中使用
+            const self = this;
+            
             // 使用统一传输系统
             await window.unifiedTransfer.startReceiving(
                 {
@@ -2767,7 +2773,7 @@ class BaseChatMode {
                 },
                 (progress, speed) => {
                     // 更新进度
-                    this.updateFileProgress(offer.fileId, progress, speed, false);
+                    self.updateFileProgress(offer.fileId, progress, speed, false);
                 },
                 () => {
                     // 完成回调
@@ -2775,8 +2781,8 @@ class BaseChatMode {
                     
                     // 显示完成状态
                     setTimeout(() => {
-                        this.hideFileProgress(offer.fileId);
-                        this.displayFileRecord({
+                        self.hideFileProgress(offer.fileId);
+                        self.displayFileRecord({
                             fileName: offer.fileName,
                             fileSize: offer.fileSize,
                             fileType: offer.fileType,
@@ -2788,8 +2794,8 @@ class BaseChatMode {
                 (error) => {
                     // 错误回调
                     console.error('❌ 统一传输接收失败:', error);
-                    this.hideFileProgress(offer.fileId);
-                    this.showNotification(`❌ 文件接收失败: ${error.message}`);
+                    self.hideFileProgress(offer.fileId);
+                    self.showNotification(`❌ 文件接收失败: ${error.message}`);
                 }
             );
             

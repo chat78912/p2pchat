@@ -172,6 +172,11 @@ class UnifiedTransfer {
                 const { done, value } = await reader.read();
                 if (done) break;
                 
+                // 检查连接状态
+                if (sender.dataChannel.readyState !== 'open') {
+                    throw new Error('Connection closed during transfer');
+                }
+                
                 // 等待缓冲区
                 await this.waitForBuffer(sender.dataChannel);
                 
@@ -450,7 +455,7 @@ class UnifiedTransfer {
     async waitForBuffer(dataChannel) {
         return new Promise((resolve, reject) => {
             let attempts = 0;
-            const maxAttempts = 100;
+            const maxAttempts = 200; // 增加尝试次数
             
             const check = () => {
                 if (dataChannel.readyState !== 'open') {
@@ -467,7 +472,9 @@ class UnifiedTransfer {
                     resolve();
                 } else {
                     attempts++;
-                    setTimeout(check, 10);
+                    // 根据缓冲量调整等待时间
+                    const delay = dataChannel.bufferedAmount > 100000 ? 50 : 10;
+                    setTimeout(check, delay);
                 }
             };
             
