@@ -659,10 +659,14 @@ class BaseChatMode {
         
         if (createOffer) {
             const dataChannel = pc.createDataChannel('chat', {
-                ordered: true
+                ordered: true,
+                maxPacketLifeTime: 30000, // 30秒超时
+                maxRetransmits: 10 // 最多重传10次
             });
             // 设置二进制类型
             dataChannel.binaryType = 'arraybuffer';
+            // 增加缓冲区阈值
+            dataChannel.bufferedAmountLowThreshold = 65536; // 64KB
             peerData.dataChannel = dataChannel;
             this.setupDataChannel(dataChannel, peerId);
         }
@@ -709,6 +713,11 @@ class BaseChatMode {
             this.showNotification(`💬 数据通道已建立，可以开始聊天`);
             this.updateChannelStatus();
             this.renderUserList();
+        };
+        
+        // 监听缓冲区低阈值事件
+        dataChannel.onbufferedamountlow = () => {
+            console.log(`Buffer amount low for ${this.formatUserId(peerId)}`);
         };
         
         dataChannel.onmessage = (event) => {
@@ -770,6 +779,27 @@ class BaseChatMode {
                         this.showNotification(`❌ 文件传输中断: ${sender.file.name}`);
                         this.fileSenders.delete(fileId);
                     }
+                }
+            }
+            
+            // 清理流式传输
+            if (this.streamSenders) {
+                for (const [fileId, sender] of this.streamSenders.entries()) {
+                    if (sender.dataChannel === dataChannel) {
+                        sender.isPaused = true;
+                        sender.isComplete = true;
+                        this.streamSenders.delete(fileId);
+                        this.showNotification(`❌ 流式传输中断: ${sender.file.name}`);
+                    }
+                }
+            }
+            
+            if (this.streamReceivers) {
+                for (const [fileId, receiver] of this.streamReceivers.entries()) {
+                    if (receiver.cancel) {
+                        receiver.cancel();
+                    }
+                    this.streamReceivers.delete(fileId);
                 }
             }
             

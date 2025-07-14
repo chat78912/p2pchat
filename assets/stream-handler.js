@@ -11,10 +11,12 @@ class StreamHandler {
         
         // 传输配置
         this.config = {
-            chunkSize: 16 * 1024, // 16KB - 优化的块大小
-            maxBufferedAmount: 64 * 1024, // 64KB - 最大缓冲
-            backpressureThreshold: 32 * 1024, // 32KB - 背压阈值
-            ackInterval: 10 // 每10个块发送一次确认
+            chunkSize: 8 * 1024, // 8KB - 更小的块大小以提高稳定性
+            maxBufferedAmount: 256 * 1024, // 256KB - 最大缓冲
+            backpressureThreshold: 128 * 1024, // 128KB - 背压阈值
+            ackInterval: 10, // 每10个块发送一次确认
+            sendDelay: 10, // 发送延迟（毫秒）
+            maxRetries: 3 // 最大重试次数
         };
         
         // 加载 StreamSaver.js 如果需要
@@ -107,6 +109,11 @@ class StreamHandler {
                         isBinary: true
                     };
                     
+                    // 检查通道状态
+                    if (dataChannel.readyState !== 'open') {
+                        throw new Error('Data channel closed');
+                    }
+                    
                     // 使用 ArrayBuffer 直接发送
                     dataChannel.send(this.encodeMessage(message));
                     
@@ -119,8 +126,8 @@ class StreamHandler {
                         onProgress(progress, speed);
                     }
                     
-                    // 继续下一个块
-                    await pump();
+                    // 添加小延迟，避免过载
+                    setTimeout(() => pump(), this.config.sendDelay);
                     
                 } catch (error) {
                     sender.isComplete = true;
