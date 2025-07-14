@@ -724,47 +724,68 @@ class BaseChatMode {
             if (event.data instanceof ArrayBuffer) {
                 // 优先使用混合传输引擎
                 if (window.hybridTransferEngine) {
-                    const message = window.hybridTransferEngine.parseHybridMessage(event.data);
-                    
-                    // 处理混合传输数据块
-                    if (message.type === 'hybrid-chunk') {
-                        const receiver = this.hybridReceivers?.get(message.fileId);
-                        if (receiver) {
-                            window.hybridTransferEngine.handleHybridChunk(message, peerId, receiver);
+                    try {
+                        const message = window.hybridTransferEngine.parseHybridMessage(event.data);
+                        
+                        // 处理混合传输数据块
+                        if (message.type === 'hybrid-chunk') {
+                            const receiver = this.hybridReceivers?.get(message.fileId);
+                            if (receiver) {
+                                window.hybridTransferEngine.handleHybridChunk(message, peerId, receiver);
+                            }
+                            return;
+                        } else if (message.type === 'speed-test') {
+                            // 忽略速度测试包
+                            return;
                         }
-                        return;
-                    } else if (message.type === 'speed-test') {
-                        // 忽略速度测试包
-                        return;
+                    } catch (error) {
+                        console.warn('Failed to parse hybrid message:', error);
+                        // 继续尝试其他解析器
                     }
                 }
                 
                 // 回退到其他处理器
                 if (window.robustStreamHandler) {
-                    const message = window.robustStreamHandler.parseMessage(event.data);
-                    
-                    // 处理鲁棒性流式数据块
-                    if (message.type === 'robust-chunk') {
-                        window.robustStreamHandler.handleRobustChunk(message, peerId);
-                        return;
+                    try {
+                        const message = window.robustStreamHandler.parseMessage(event.data);
+                        
+                        // 处理鲁棒性流式数据块
+                        if (message.type === 'robust-chunk') {
+                            window.robustStreamHandler.handleRobustChunk(message, peerId);
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn('Failed to parse robust message:', error);
                     }
                 } else if (window.highPerformanceStreamHandler) {
-                    const message = window.highPerformanceStreamHandler.parseBinaryMessage(event.data);
-                    
-                    // 处理高性能流式数据块
-                    if (message.type === 'hp-chunk') {
-                        window.highPerformanceStreamHandler.handleHighPerformanceChunk(message, peerId);
-                        return;
+                    try {
+                        const message = window.highPerformanceStreamHandler.parseBinaryMessage(event.data);
+                        
+                        // 处理高性能流式数据块
+                        if (message.type === 'hp-chunk') {
+                            window.highPerformanceStreamHandler.handleHighPerformanceChunk(message, peerId);
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn('Failed to parse high-performance message:', error);
                     }
                 } else if (window.streamHandler) {
-                    const message = window.streamHandler.decodeMessage(event.data);
-                    
-                    // 处理流式数据块
-                    if (message.type === 'stream-chunk') {
-                        this.handleStreamChunk(message, peerId);
-                        return;
+                    try {
+                        const message = window.streamHandler.decodeMessage(event.data);
+                        
+                        // 处理流式数据块
+                        if (message.type === 'stream-chunk') {
+                            this.handleStreamChunk(message, peerId);
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn('Failed to parse stream message:', error);
                     }
                 }
+                
+                // 如果是未识别的二进制消息，直接返回，不要尝试解析为文本
+                console.warn('Unrecognized binary message type, ignoring');
+                return;
             }
             
             // 处理文本消息
