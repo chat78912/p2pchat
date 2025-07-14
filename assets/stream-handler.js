@@ -11,11 +11,11 @@ class StreamHandler {
         
         // 传输配置
         this.config = {
-            chunkSize: 8 * 1024, // 8KB - 更小的块大小以提高稳定性
-            maxBufferedAmount: 256 * 1024, // 256KB - 最大缓冲
-            backpressureThreshold: 128 * 1024, // 128KB - 背压阈值
+            chunkSize: 4 * 1024, // 4KB - 更小的块大小以提高稳定性
+            maxBufferedAmount: 64 * 1024, // 64KB - 最大缓冲
+            backpressureThreshold: 32 * 1024, // 32KB - 背压阈值
             ackInterval: 10, // 每10个块发送一次确认
-            sendDelay: 10, // 发送延迟（毫秒）
+            sendDelay: 50, // 发送延迟（毫秒）- 增加延迟
             maxRetries: 3 // 最大重试次数
         };
         
@@ -92,10 +92,15 @@ class StreamHandler {
                         return;
                     }
                     
-                    // 检查背压
+                    // 检查背压 - 更保守的策略
                     if (dataChannel.bufferedAmount > this.config.backpressureThreshold) {
                         // 等待缓冲区清空
                         await this.waitForBuffer(dataChannel);
+                    }
+                    
+                    // 再次检查通道状态
+                    if (dataChannel.readyState !== 'open') {
+                        throw new Error('Data channel closed during transmission');
                     }
                     
                     // 发送二进制数据
@@ -483,12 +488,28 @@ class StreamHandler {
      * 等待缓冲区清空
      */
     waitForBuffer(dataChannel) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
+            let waitTime = 0;
+            const maxWaitTime = 10000; // 最多等待10秒
+            
             const checkBuffer = () => {
-                if (dataChannel.bufferedAmount < this.config.maxBufferedAmount) {
+                // 检查通道是否还开着
+                if (dataChannel.readyState !== 'open') {
+                    reject(new Error('Data channel closed while waiting for buffer'));
+                    return;
+                }
+                
+                // 检查是否超时
+                if (waitTime > maxWaitTime) {
+                    reject(new Error('Buffer wait timeout'));
+                    return;
+                }
+                
+                if (dataChannel.bufferedAmount < this.config.backpressureThreshold / 2) {
                     resolve();
                 } else {
-                    setTimeout(checkBuffer, 50);
+                    waitTime += 100;
+                    setTimeout(checkBuffer, 100);
                 }
             };
             checkBuffer();

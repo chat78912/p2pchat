@@ -1640,13 +1640,8 @@ class BaseChatMode {
             offerElement.remove();
         }
         
-        // 使用流式处理器发送文件
-        if (window.streamHandler) {
-            this.startStreamFileSending(file, response.fileId, peerId);
-        } else {
-            // 回退到原有方式
-            this.startFileSending(file, response.fileId, peerId);
-        }
+        // 暂时使用原有的分块传输方式（更稳定）
+        this.startFileSending(file, response.fileId, peerId);
     }
     
     handleFileReject(response, peerId) {
@@ -1701,7 +1696,7 @@ class BaseChatMode {
     
     // 开始实时发送文件（流式传输）
     startFileSending(file, fileId, peerId) {
-        const chunkSize = 64 * 1024; // 64KB chunks
+        const chunkSize = 4 * 1024; // 4KB chunks - 更小的块大小
         const totalChunks = Math.ceil(file.size / chunkSize);
         
         // 立即显示发送进度UI
@@ -1810,7 +1805,13 @@ class BaseChatMode {
                         
                         // 发送下一个块，根据缓冲区状态调整延迟
                         if (sender.currentChunk < totalChunks) {
-                            const delay = bufferedAmount > 64 * 1024 ? 50 : 20; // 动态调整延迟
+                            // 更保守的延迟策略
+                            let delay = 100; // 基础延迟
+                            if (bufferedAmount > 32 * 1024) {
+                                delay = 500; // 高负载时大幅增加延迟
+                            } else if (bufferedAmount > 16 * 1024) {
+                                delay = 200; // 中等负载
+                            }
                             setTimeout(() => sender.sendNextChunk(), delay);
                         } else {
                             // 发送完成
@@ -2391,13 +2392,8 @@ class BaseChatMode {
     }
     
     acceptFileOffer(offer, peerId) {
-        // 使用流式接收器
-        if (window.streamHandler) {
-            this.startStreamReceiving(offer, peerId);
-        } else {
-            // 回退到原有方式
-            this.startStreamDownload(offer, peerId);
-        }
+        // 暂时使用原有的接收方式（更稳定）
+        this.startStreamDownload(offer, peerId);
         
         // 发送接受响应
         const response = {
