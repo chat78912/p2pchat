@@ -343,9 +343,13 @@ class UnifiedTransfer {
      * 处理文件块
      */
     async handleFileChunk(packet) {
+        console.log('📦 Received chunk for fileId:', packet.fileId);
+        console.log('📂 Active receivers:', Array.from(this.activeReceivers.keys()));
+        
         const receiver = this.activeReceivers.get(packet.fileId);
         if (!receiver) {
-            console.warn('No receiver for file:', packet.fileId);
+            console.warn('❌ No receiver for file:', packet.fileId);
+            console.warn('📂 Available receivers:', Array.from(this.activeReceivers.keys()));
             return;
         }
         
