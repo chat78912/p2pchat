@@ -722,6 +722,24 @@ class BaseChatMode {
         dataChannel.onmessage = (event) => {
             // 检查是否为二进制消息
             if (event.data instanceof ArrayBuffer) {
+                // 优先使用混合传输引擎
+                if (window.hybridTransferEngine) {
+                    const message = window.hybridTransferEngine.parseHybridMessage(event.data);
+                    
+                    // 处理混合传输数据块
+                    if (message.type === 'hybrid-chunk') {
+                        const receiver = this.hybridReceivers?.get(message.fileId);
+                        if (receiver) {
+                            window.hybridTransferEngine.handleHybridChunk(message, peerId, receiver);
+                        }
+                        return;
+                    } else if (message.type === 'speed-test') {
+                        // 忽略速度测试包
+                        return;
+                    }
+                }
+                
+                // 回退到其他处理器
                 if (window.robustStreamHandler) {
                     const message = window.robustStreamHandler.parseMessage(event.data);
                     
@@ -1658,8 +1676,10 @@ class BaseChatMode {
             offerElement.remove();
         }
         
-        // 使用鲁棒性流式传输
-        if (window.robustStreamHandler) {
+        // 优先使用混合传输引擎
+        if (window.hybridTransferEngine) {
+            this.startHybridFileSending(file, response.fileId, peerId);
+        } else if (window.robustStreamHandler) {
             this.startRobustFileSending(file, response.fileId, peerId);
         } else if (window.highPerformanceStreamHandler) {
             this.startHighPerformanceFileSending(file, response.fileId, peerId);
@@ -2599,8 +2619,10 @@ class BaseChatMode {
     }
     
     acceptFileOffer(offer, peerId) {
-        // 使用鲁棒性流式接收
-        if (window.robustStreamHandler) {
+        // 优先使用混合传输引擎接收
+        if (window.hybridTransferEngine) {
+            this.startHybridFileReceiving(offer, peerId);
+        } else if (window.robustStreamHandler) {
             this.startRobustFileReceiving(offer, peerId);
         } else if (window.highPerformanceStreamHandler) {
             this.startHighPerformanceFileReceiving(offer, peerId);
@@ -2710,6 +2732,145 @@ class BaseChatMode {
         
         this.showFileProgress(metadata.fileId, metadata.fileName, 0, metadata.fileSize, false, metadata.userInfo);
         console.log(`开始接收文件: ${metadata.fileName} (${metadata.totalChunks} 块)`);
+    }
+    
+    /**
+     * 启动混合传输发送
+     */
+    async startHybridFileSending(file, fileId, peerId) {
+        try {
+            console.log(`🚀 启动混合传输发送: ${file.name}`);
+            
+            // 获取所有可用连接
+            const connections = [];
+            this.peerConnections.forEach((peerData, id) => {
+                if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                    connections.push(peerData.dataChannel);
+                }
+            });
+            
+            if (connections.length === 0) {
+                throw new Error('没有可用的连接');
+            }
+            
+            // 显示发送进度
+            this.showFileProgress(
+                fileId, 
+                file.name, 
+                0, 
+                file.size, 
+                true, 
+                this.currentUserInfo
+            );
+            
+            // 创建混合发送器
+            const sender = await window.hybridTransferEngine.createHybridSender(
+                file,
+                fileId,
+                connections,
+                (progress, speed) => {
+                    // 更新进度
+                    this.updateFileProgress(fileId, progress, speed, true);
+                },
+                () => {
+                    // 完成回调
+                    console.log(`✅ 混合传输发送完成: ${file.name}`);
+                    this.pendingFiles?.delete(fileId);
+                    
+                    // 显示完成状态
+                    setTimeout(() => {
+                        this.hideFileProgress(fileId);
+                        this.displayFileRecord({
+                            fileName: file.name,
+                            fileSize: file.size,
+                            fileType: file.type,
+                            userInfo: this.currentUserInfo,
+                            timestamp: Date.now()
+                        }, true);
+                    }, 1000);
+                },
+                (error) => {
+                    // 错误回调
+                    console.error('❌ 混合传输发送失败:', error);
+                    this.pendingFiles?.delete(fileId);
+                    this.hideFileProgress(fileId);
+                    this.showNotification(`❌ 文件发送失败: ${error.message}`);
+                }
+            );
+            
+        } catch (error) {
+            console.error('启动混合传输发送失败:', error);
+            this.showNotification(`❌ 启动文件发送失败: ${error.message}`);
+        }
+    }
+    
+    /**
+     * 启动混合传输接收
+     */
+    async startHybridFileReceiving(offer, peerId) {
+        try {
+            console.log(`📥 启动混合传输接收: ${offer.fileName}`);
+            
+            // 初始化接收器映射
+            if (!this.hybridReceivers) {
+                this.hybridReceivers = new Map();
+            }
+            
+            // 显示接收进度
+            this.showFileProgress(
+                offer.fileId,
+                offer.fileName,
+                0,
+                offer.fileSize,
+                false,
+                offer.userInfo
+            );
+            
+            // 创建混合接收器
+            const receiver = await window.hybridTransferEngine.createHybridReceiver(
+                {
+                    fileId: offer.fileId,
+                    fileName: offer.fileName,
+                    fileSize: offer.fileSize,
+                    fileType: offer.fileType
+                },
+                (progress, speed) => {
+                    // 更新进度
+                    this.updateFileProgress(offer.fileId, progress, speed, false);
+                },
+                () => {
+                    // 完成回调
+                    console.log(`✅ 混合传输接收完成: ${offer.fileName}`);
+                    this.hybridReceivers?.delete(offer.fileId);
+                    
+                    // 显示完成状态
+                    setTimeout(() => {
+                        this.hideFileProgress(offer.fileId);
+                        this.displayFileRecord({
+                            fileName: offer.fileName,
+                            fileSize: offer.fileSize,
+                            fileType: offer.fileType,
+                            userInfo: offer.userInfo,
+                            timestamp: Date.now()
+                        }, false);
+                    }, 1000);
+                },
+                (error) => {
+                    // 错误回调
+                    console.error('❌ 混合传输接收失败:', error);
+                    this.hybridReceivers?.delete(offer.fileId);
+                    this.hideFileProgress(offer.fileId);
+                    this.showNotification(`❌ 文件接收失败: ${error.message}`);
+                }
+            );
+            
+            // 保存接收器
+            this.hybridReceivers.set(offer.fileId, receiver);
+            
+        } catch (error) {
+            console.error('启动混合传输接收失败:', error);
+            this.showNotification(`❌ 启动文件接收失败: ${error.message}`);
+        }
     }
 
     // 抽象方法，子类需要实现
