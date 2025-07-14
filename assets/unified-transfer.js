@@ -12,12 +12,13 @@
 class UnifiedTransfer {
     constructor() {
         this.config = {
-            chunkSize: 4 * 1024,         // 4KB - 更小的块大小以提高稳定性
-            maxBuffered: 16 * 1024,      // 16KB 缓冲限制，进一步减少压力
+            chunkSize: 2 * 1024,         // 2KB - 进一步减小块大小
+            maxBuffered: 8 * 1024,       // 8KB 缓冲限制，大幅减少压力
             secretKey: this.generateKey(), // 简单的加密密钥
-            sendDelay: 20,               // 20ms 发送延迟，给接收方更多处理时间
-            maxRetries: 5,               // 增加重试次数
+            sendDelay: 50,               // 50ms 发送延迟，大幅降低发送频率
+            maxRetries: 8,               // 进一步增加重试次数
             heartbeatInterval: 2000,     // 2秒心跳检查
+            largeFileThreshold: 1024 * 1024, // 1MB阈值，大文件使用不同策略
         };
         
         this.activeSenders = new Map();
@@ -173,6 +174,15 @@ class UnifiedTransfer {
     async startSending(file, fileId, dataChannel, onProgress, onComplete, onError) {
         console.log(`📤 Starting unified transfer: ${file.name} (${this.formatBytes(file.size)})`);
         
+        // 检查是否为大文件，调整策略
+        const isLargeFile = file.size > this.config.largeFileThreshold;
+        if (isLargeFile) {
+            console.log('🐌 Large file detected, using conservative strategy');
+            // 大文件使用更保守的配置
+            this.config.sendDelay = 100;  // 100ms延迟
+            this.config.maxBuffered = 4 * 1024; // 4KB缓冲
+        }
+        
         // 先进行连接健康检查
         if (!await this.checkConnectionHealth(dataChannel)) {
             console.error('Connection health check failed');
@@ -190,6 +200,7 @@ class UnifiedTransfer {
             isActive: true,
             startTime: Date.now(),
             lastHealthCheck: Date.now(),
+            isLargeFile: isLargeFile,  // 保存大文件标记
             onProgress,
             onComplete,
             onError
@@ -197,13 +208,46 @@ class UnifiedTransfer {
         
         this.activeSenders.set(fileId, sender);
         
+        // 启动发送端监控
+        const monitorInterval = setInterval(() => {
+            if (!sender.isActive) {
+                clearInterval(monitorInterval);
+                return;
+            }
+            
+            // 检查连接状态
+            if (sender.dataChannel.readyState !== 'open') {
+                console.warn('⚠️ Data channel not open, pausing sender');
+                sender.isActive = false;
+                clearInterval(monitorInterval);
+                onError(new Error('Data channel closed during monitoring'));
+                return;
+            }
+            
+            // 检查是否长时间无进度
+            const now = Date.now();
+            if (!sender.lastProgressTime) {
+                sender.lastProgressTime = now;
+            } else if (now - sender.lastProgressTime > 30000) { // 30秒无进度
+                console.error('❌ No progress for 30 seconds, stopping');
+                sender.isActive = false;
+                clearInterval(monitorInterval);
+                onError(new Error('Transfer stalled'));
+                return;
+            }
+            
+            console.debug(`📊 Sender monitor: ${sender.sentBytes}/${sender.totalSize} bytes, buffer: ${sender.dataChannel.bufferedAmount}`);
+        }, 5000); // 每5秒检查一次
+        
         try {
             if (this.capabilities.fileStream) {
                 await this.sendWithStream(sender);
             } else {
                 await this.sendWithSlicing(sender);
             }
+            clearInterval(monitorInterval);
         } catch (error) {
+            clearInterval(monitorInterval);
             console.error('❌ Unified sending failed:', error);
             onError(error);
         }
@@ -242,8 +286,25 @@ class UnifiedTransfer {
                         // 等待缓冲区
                         await this.waitForBuffer(sender.dataChannel);
                         
+                        // 二次检查连接状态
+                        if (sender.dataChannel.readyState !== 'open') {
+                            throw new Error('Connection closed while waiting for buffer');
+                        }
+                        
                         // 创建数据包 (type: 1 = file chunk)
                         const packet = this.createPacket(1, sender.fileId, sender.chunkIndex, value);
+                        
+                        // 检查包大小
+                        if (packet.byteLength > 65536) {
+                            throw new Error('Packet too large: ' + packet.byteLength);
+                        }
+                        
+                        // 发送前最后检查
+                        if (sender.dataChannel.bufferedAmount > this.config.maxBuffered * 2) {
+                            console.warn('Buffer still too high, waiting more...');
+                            await new Promise(resolve => setTimeout(resolve, 50));
+                            continue; // 重新检查
+                        }
                         
                         // 发送
                         sender.dataChannel.send(packet);
@@ -252,16 +313,31 @@ class UnifiedTransfer {
                         sent = true;
                         retryCount = 0; // 重置重试计数
                         
+                        console.debug(`✅ Sent chunk ${sender.chunkIndex - 1}, buffered: ${sender.dataChannel.bufferedAmount}`);
+                        
                     } catch (error) {
                         retryCount++;
                         console.warn(`Send failed (attempt ${retryCount}/${this.config.maxRetries}):`, error.message);
+                        
+                        // 如果是连接关闭错误，等待更长时间
+                        if (error.message.includes('closed')) {
+                            console.warn('Connection issue detected, waiting for recovery...');
+                            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+                            
+                            // 检查连接是否恢复
+                            if (sender.dataChannel.readyState !== 'open') {
+                                throw new Error('Connection permanently closed');
+                            }
+                        }
                         
                         if (retryCount >= this.config.maxRetries) {
                             throw new Error('Max retries exceeded: ' + error.message);
                         }
                         
-                        // 等待一段时间再重试
-                        await new Promise(resolve => setTimeout(resolve, 100 * retryCount));
+                        // 指数退避重试策略
+                        const delay = Math.min(1000, 100 * Math.pow(2, retryCount - 1));
+                        console.log(`Retrying in ${delay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
                     }
                 }
                 
@@ -272,8 +348,23 @@ class UnifiedTransfer {
                     sender.onProgress(progress, speed);
                 }
                 
-                // 根据配置添加延迟
-                await new Promise(resolve => setTimeout(resolve, this.config.sendDelay));
+                // 检查发送状态，如果缓冲区过高则暂停 - 对大文件更严格
+                const bufferLimit = sender.isLargeFile ? this.config.maxBuffered / 2 : this.config.maxBuffered;
+                while (sender.dataChannel.bufferedAmount > bufferLimit && sender.isActive) {
+                    console.warn(`⏸️ Buffer too high (${sender.dataChannel.bufferedAmount}/${bufferLimit}), pausing...`);
+                    await new Promise(resolve => setTimeout(resolve, sender.isLargeFile ? 200 : 100));
+                }
+                
+                // 根据配置添加延迟，动态调整 - 大文件使用更长延迟
+                let dynamicDelay = this.config.sendDelay;
+                if (sender.isLargeFile) {
+                    dynamicDelay *= 2; // 大文件延迟翻倍
+                }
+                if (sender.dataChannel.bufferedAmount > 4096) {
+                    dynamicDelay *= 2; // 如果缓冲区还有数据，再翻倍
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, dynamicDelay));
             }
             
             console.log('✅ Unified sending completed');
@@ -566,7 +657,7 @@ class UnifiedTransfer {
     async waitForBuffer(dataChannel) {
         return new Promise((resolve, reject) => {
             let attempts = 0;
-            const maxAttempts = 200; // 增加尝试次数
+            const maxAttempts = 500; // 进一步增加等待时间
             
             const check = () => {
                 if (dataChannel.readyState !== 'open') {
@@ -575,16 +666,24 @@ class UnifiedTransfer {
                 }
                 
                 if (attempts > maxAttempts) {
+                    console.error('Buffer wait timeout, current amount:', dataChannel.bufferedAmount);
                     reject(new Error('Buffer wait timeout'));
                     return;
                 }
                 
-                if (dataChannel.bufferedAmount < this.config.maxBuffered) {
+                // 更保守的缓冲区检查 - 只有在缓冲区很低时才继续
+                const bufferThreshold = this.config.maxBuffered / 4; // 使用更低的阈值（1/4）
+                if (dataChannel.bufferedAmount < bufferThreshold) {
                     resolve();
                 } else {
                     attempts++;
-                    // 根据缓冲量调整等待时间
-                    const delay = dataChannel.bufferedAmount > 100000 ? 50 : 10;
+                    // 根据缓冲量调整等待时间，更长的延迟
+                    let delay = 50; // 基础延迟增加
+                    if (dataChannel.bufferedAmount > 32000) delay = 200;
+                    else if (dataChannel.bufferedAmount > 16000) delay = 150;
+                    else if (dataChannel.bufferedAmount > 8000) delay = 100;
+                    
+                    console.debug(`Waiting for buffer: ${dataChannel.bufferedAmount}/${bufferThreshold}, attempt ${attempts}`);
                     setTimeout(check, delay);
                 }
             };
