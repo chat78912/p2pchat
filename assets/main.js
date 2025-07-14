@@ -2727,7 +2727,7 @@ class BaseChatMode {
                     
                     // 显示完成状态
                     setTimeout(() => {
-                        self.hideFileProgress(fileId);
+                        self.removeFileProgress(fileId);
                         self.displayFileRecord({
                             fileName: file.name,
                             fileSize: file.size,
@@ -2741,7 +2741,7 @@ class BaseChatMode {
                     // 错误回调
                     console.error('❌ 统一传输发送失败:', error);
                     self.pendingFiles?.delete(fileId);
-                    self.hideFileProgress(fileId);
+                    self.removeFileProgress(fileId);
                     self.showNotification(`❌ 文件发送失败: ${error.message}`);
                 }
             );
@@ -2783,7 +2783,7 @@ class BaseChatMode {
                     
                     // 显示完成状态
                     setTimeout(() => {
-                        self.hideFileProgress(offer.fileId);
+                        self.removeFileProgress(offer.fileId);
                         self.displayFileRecord({
                             fileName: offer.fileName,
                             fileSize: offer.fileSize,
@@ -2796,7 +2796,7 @@ class BaseChatMode {
                 (error) => {
                     // 错误回调
                     console.error('❌ 统一传输接收失败:', error);
-                    self.hideFileProgress(offer.fileId);
+                    self.removeFileProgress(offer.fileId);
                     self.showNotification(`❌ 文件接收失败: ${error.message}`);
                 }
             );
@@ -2852,7 +2852,7 @@ class BaseChatMode {
                     
                     // 显示完成状态
                     setTimeout(() => {
-                        this.hideFileProgress(fileId);
+                        this.removeFileProgress(fileId);
                         this.displayFileRecord({
                             fileName: file.name,
                             fileSize: file.size,
@@ -2866,7 +2866,7 @@ class BaseChatMode {
                     // 错误回调
                     console.error('❌ 混合传输发送失败:', error);
                     this.pendingFiles?.delete(fileId);
-                    this.hideFileProgress(fileId);
+                    this.removeFileProgress(fileId);
                     this.showNotification(`❌ 文件发送失败: ${error.message}`);
                 }
             );
@@ -2918,7 +2918,7 @@ class BaseChatMode {
                     
                     // 显示完成状态
                     setTimeout(() => {
-                        this.hideFileProgress(offer.fileId);
+                        this.removeFileProgress(offer.fileId);
                         this.displayFileRecord({
                             fileName: offer.fileName,
                             fileSize: offer.fileSize,
@@ -2932,7 +2932,7 @@ class BaseChatMode {
                     // 错误回调
                     console.error('❌ 混合传输接收失败:', error);
                     this.hybridReceivers?.delete(offer.fileId);
-                    this.hideFileProgress(offer.fileId);
+                    this.removeFileProgress(offer.fileId);
                     this.showNotification(`❌ 文件接收失败: ${error.message}`);
                 }
             );

@@ -12,9 +12,11 @@
 class UnifiedTransfer {
     constructor() {
         this.config = {
-            chunkSize: 16 * 1024,        // 16KB - 平衡性能和兼容性
-            maxBuffered: 64 * 1024,      // 64KB 缓冲限制
+            chunkSize: 8 * 1024,         // 8KB - 更保守的块大小
+            maxBuffered: 32 * 1024,      // 32KB 缓冲限制，减少压力
             secretKey: this.generateKey(), // 简单的加密密钥
+            sendDelay: 5,                // 5ms 发送延迟
+            maxRetries: 3,               // 最大重试次数
         };
         
         this.activeSenders = new Map();
@@ -171,26 +173,47 @@ class UnifiedTransfer {
     async sendWithStream(sender) {
         const stream = sender.file.stream();
         const reader = stream.getReader();
+        let retryCount = 0;
         
         try {
             while (sender.isActive) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 
-                // 检查连接状态
-                if (sender.dataChannel.readyState !== 'open') {
-                    throw new Error('Connection closed during transfer');
+                // 带重试的发送
+                let sent = false;
+                while (!sent && retryCount < this.config.maxRetries) {
+                    try {
+                        // 检查连接状态
+                        if (sender.dataChannel.readyState !== 'open') {
+                            throw new Error('Connection closed during transfer');
+                        }
+                        
+                        // 等待缓冲区
+                        await this.waitForBuffer(sender.dataChannel);
+                        
+                        // 创建数据包 (type: 1 = file chunk)
+                        const packet = this.createPacket(1, sender.fileId, sender.chunkIndex, value);
+                        
+                        // 发送
+                        sender.dataChannel.send(packet);
+                        sender.sentBytes += value.byteLength;
+                        sender.chunkIndex++;
+                        sent = true;
+                        retryCount = 0; // 重置重试计数
+                        
+                    } catch (error) {
+                        retryCount++;
+                        console.warn(`Send failed (attempt ${retryCount}/${this.config.maxRetries}):`, error.message);
+                        
+                        if (retryCount >= this.config.maxRetries) {
+                            throw new Error('Max retries exceeded: ' + error.message);
+                        }
+                        
+                        // 等待一段时间再重试
+                        await new Promise(resolve => setTimeout(resolve, 100 * retryCount));
+                    }
                 }
-                
-                // 等待缓冲区
-                await this.waitForBuffer(sender.dataChannel);
-                
-                // 创建数据包 (type: 1 = file chunk)
-                const packet = this.createPacket(1, sender.fileId, sender.chunkIndex++, value);
-                
-                // 发送
-                sender.dataChannel.send(packet);
-                sender.sentBytes += value.byteLength;
                 
                 // 更新进度
                 if (sender.onProgress) {
@@ -199,8 +222,8 @@ class UnifiedTransfer {
                     sender.onProgress(progress, speed);
                 }
                 
-                // 小延迟避免过载
-                await new Promise(resolve => setTimeout(resolve, 1));
+                // 根据配置添加延迟
+                await new Promise(resolve => setTimeout(resolve, this.config.sendDelay));
             }
             
             console.log('✅ Unified sending completed');
@@ -248,8 +271,8 @@ class UnifiedTransfer {
                     sender.onProgress(progress, speed);
                 }
                 
-                // 小延迟
-                await new Promise(resolve => setTimeout(resolve, 1));
+                // 根据配置添加延迟
+                await new Promise(resolve => setTimeout(resolve, this.config.sendDelay));
                 
             } catch (error) {
                 console.error('❌ Slice sending error:', error);
