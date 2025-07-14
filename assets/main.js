@@ -721,6 +721,7 @@ class BaseChatMode {
         
         dataChannel.onmessage = (event) => {
             // 检查是否为二进制消息
+            console.log('Message received:', typeof event.data, event.data.constructor.name);
             if (event.data instanceof ArrayBuffer) {
                 // 优先使用混合传输引擎
                 if (window.hybridTransferEngine) {
@@ -788,8 +789,14 @@ class BaseChatMode {
                 return;
             }
             
+            // 确保只处理字符串类型的文本消息
+            if (typeof event.data !== 'string') {
+                console.error('Non-string message reached text parsing section:', typeof event.data, event.data);
+                return;
+            }
+            
             // 处理文本消息
-            const message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+            const message = JSON.parse(event.data);
             
             // 处理不同类型的消息
             switch (message.type) {
