@@ -284,22 +284,38 @@ class UnifiedTransfer {
             startTime: Date.now(),
             onProgress,
             onComplete,
-            onError
+            onError,
+            isReady: false,  // 标记接收器是否准备就绪
+            earlyChunks: []  // 缓存早期到达的数据包
         };
         
+        // 立即添加到活跃接收器（即使写入器还没准备好）
+        this.activeReceivers.set(fileMetadata.fileId, receiver);
+        console.log(`✅ Receiver registered for fileId: ${fileMetadata.fileId}`);
+        console.log(`📂 Active receivers count: ${this.activeReceivers.size}`);
+        
         try {
-            // 设置写入器
+            // 异步设置写入器
             await this.setupWriter(receiver);
             
-            // 添加到活跃接收器
-            this.activeReceivers.set(fileMetadata.fileId, receiver);
-            console.log(`✅ Receiver added for fileId: ${fileMetadata.fileId}`);
-            console.log(`📂 Active receivers count: ${this.activeReceivers.size}`);
+            // 标记为就绪
+            receiver.isReady = true;
+            console.log(`✅ Receiver ready for fileId: ${fileMetadata.fileId}`);
+            
+            // 处理缓存的早期数据包
+            if (receiver.earlyChunks.length > 0) {
+                console.log(`📦 Processing ${receiver.earlyChunks.length} cached chunks`);
+                for (const chunk of receiver.earlyChunks) {
+                    await this.processFileChunk(receiver, chunk);
+                }
+                receiver.earlyChunks = []; // 清空缓存
+            }
             
             return receiver;
             
         } catch (error) {
             console.error('❌ Failed to setup receiver:', error);
+            this.activeReceivers.delete(fileMetadata.fileId); // 清理失败的接收器
             if (onError) onError(error);
             throw error;
         }
@@ -365,8 +381,7 @@ class UnifiedTransfer {
      * 处理文件块
      */
     async handleFileChunk(packet) {
-        console.log('📦 Received chunk for fileId:', packet.fileId);
-        console.log('📂 Active receivers:', Array.from(this.activeReceivers.keys()));
+        console.log('📦 Received chunk for fileId:', packet.fileId, 'chunkIndex:', packet.chunkIndex);
         
         const receiver = this.activeReceivers.get(packet.fileId);
         if (!receiver) {
@@ -375,6 +390,21 @@ class UnifiedTransfer {
             return;
         }
         
+        // 如果接收器还没准备好，缓存数据包
+        if (!receiver.isReady) {
+            console.log('⏳ Receiver not ready, caching chunk', packet.chunkIndex);
+            receiver.earlyChunks.push(packet);
+            return;
+        }
+        
+        // 处理数据包
+        await this.processFileChunk(receiver, packet);
+    }
+    
+    /**
+     * 处理文件块（从handleFileChunk中提取的核心逻辑）
+     */
+    async processFileChunk(receiver, packet) {
         try {
             // 存储块
             receiver.chunks.set(packet.chunkIndex, packet.data);
@@ -396,8 +426,8 @@ class UnifiedTransfer {
             }
             
         } catch (error) {
-            console.error('❌ Error handling file chunk:', error);
-            receiver.onError(error);
+            console.error('❌ Error processing file chunk:', error);
+            if (receiver.onError) receiver.onError(error);
         }
     }
     

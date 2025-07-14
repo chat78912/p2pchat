@@ -1650,8 +1650,10 @@ class BaseChatMode {
             offerElement.remove();
         }
         
-        // 使用统一传输系统
-        this.startUnifiedFileSending(file, response.fileId, peerId);
+        // 稍微延迟一下，给接收方时间准备
+        setTimeout(() => {
+            this.startUnifiedFileSending(file, response.fileId, peerId);
+        }, 500); // 500ms延迟
     }
     
     handleFileReject(response, peerId) {
