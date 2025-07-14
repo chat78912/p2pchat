@@ -214,16 +214,26 @@ class StreamHandler {
     async createStreamReceiver(fileMetadata, onProgress, onComplete, onError) {
         // 优先使用 File System Access API
         if (this.supportsFileSystemAccess) {
-            return this.createFileSystemReceiver(fileMetadata, onProgress, onComplete, onError);
+            try {
+                return await this.createFileSystemReceiver(fileMetadata, onProgress, onComplete, onError);
+            } catch (error) {
+                console.warn('File System Access API failed, falling back to StreamSaver:', error);
+                // 回退到 StreamSaver
+            }
         }
+        
         // 其次使用 StreamSaver
-        else if (this.supportsStreamSaver || window.streamSaver) {
-            return this.createStreamSaverReceiver(fileMetadata, onProgress, onComplete, onError);
+        if (this.supportsStreamSaver || window.streamSaver) {
+            try {
+                return await this.createStreamSaverReceiver(fileMetadata, onProgress, onComplete, onError);
+            } catch (error) {
+                console.warn('StreamSaver failed, falling back to memory:', error);
+                // 回退到内存方式
+            }
         }
+        
         // 最后回退到内存方式（但使用优化的处理）
-        else {
-            return this.createMemoryReceiver(fileMetadata, onProgress, onComplete, onError);
-        }
+        return await this.createMemoryReceiver(fileMetadata, onProgress, onComplete, onError);
     }
     
     /**
@@ -231,10 +241,13 @@ class StreamHandler {
      */
     async createFileSystemReceiver(fileMetadata, onProgress, onComplete, onError) {
         try {
-            // 显示文件保存对话框
+            // 显示文件保存对话框，使用简化的选项
             const handle = await window.showSaveFilePicker({
                 suggestedName: fileMetadata.fileName,
-                types: this.getFileTypes(fileMetadata)
+                types: [{
+                    description: 'All files',
+                    accept: { '*/*': ['.*'] }
+                }]
             });
             
             // 创建可写流
@@ -495,7 +508,8 @@ class StreamHandler {
      */
     getFileTypes(fileMetadata) {
         const mimeType = fileMetadata.fileType || 'application/octet-stream';
-        const extension = fileMetadata.fileName.split('.').pop().toLowerCase();
+        const fileName = fileMetadata.fileName || 'file';
+        const extension = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : 'bin';
         
         // 常见文件类型映射
         const typeMap = {
@@ -509,9 +523,10 @@ class StreamHandler {
             'text/plain': [{ description: 'Text files', accept: { 'text/plain': ['.txt'] } }]
         };
         
+        // 返回对应的类型配置，或根据扩展名生成
         return typeMap[mimeType] || [{
-            description: 'All files',
-            accept: { '*/*': [`*.${extension}`] }
+            description: `${extension.toUpperCase()} files`,
+            accept: { '*/*': [`.${extension}`] }
         }];
     }
 }
