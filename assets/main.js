@@ -719,12 +719,12 @@ class BaseChatMode {
             console.log(`Buffer amount low for ${this.formatUserId(peerId)}`);
         };
         
-        dataChannel.onmessage = (event) => {
+        dataChannel.onmessage = async (event) => {
             // 检查是否为二进制消息
             if (event.data instanceof ArrayBuffer) {
                 // 优先使用统一传输系统
                 if (window.unifiedTransfer) {
-                    const handled = window.unifiedTransfer.handlePacket(event.data);
+                    const handled = await window.unifiedTransfer.handlePacket(event.data);
                     if (handled) {
                         return; // 已被统一系统处理
                     }

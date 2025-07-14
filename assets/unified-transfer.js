@@ -261,6 +261,7 @@ class UnifiedTransfer {
      */
     async startReceiving(fileMetadata, onProgress, onComplete, onError) {
         console.log(`📥 Starting unified receive: ${fileMetadata.fileName}`);
+        console.log(`📋 FileId: ${fileMetadata.fileId}`);
         
         const receiver = {
             fileId: fileMetadata.fileId,
@@ -276,11 +277,22 @@ class UnifiedTransfer {
             onError
         };
         
-        // 设置写入器
-        await this.setupWriter(receiver);
-        
-        this.activeReceivers.set(fileMetadata.fileId, receiver);
-        return receiver;
+        try {
+            // 设置写入器
+            await this.setupWriter(receiver);
+            
+            // 添加到活跃接收器
+            this.activeReceivers.set(fileMetadata.fileId, receiver);
+            console.log(`✅ Receiver added for fileId: ${fileMetadata.fileId}`);
+            console.log(`📂 Active receivers count: ${this.activeReceivers.size}`);
+            
+            return receiver;
+            
+        } catch (error) {
+            console.error('❌ Failed to setup receiver:', error);
+            if (onError) onError(error);
+            throw error;
+        }
     }
     
     /**
