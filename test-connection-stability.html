@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>连接稳定性测试</title>
+    <style>
+        body {
+            font-family: -apple-system, system-ui, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .test-status {
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .status-pending { background: #f3f4f6; color: #6b7280; }
+        .status-running { background: #fef3c7; color: #d97706; }
+        .status-passed { background: #d1fae5; color: #065f46; }
+        .status-failed { background: #fee2e2; color: #991b1b; }
+        .test-output {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 13px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        .summary {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9fafb;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .metric {
+            display: inline-block;
+            margin: 0 15px;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        .metric-label {
+            font-size: 14px;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 WebRTC 连接稳定性测试</h1>
+    
+    <div class="summary">
+        <div class="metric">
+            <div class="metric-value" id="totalTests">0</div>
+            <div class="metric-label">总测试数</div>
+        </div>
+        <div class="metric">
+            <div class="metric-value" id="passedTests">0</div>
+            <div class="metric-label">通过</div>
+        </div>
+        <div class="metric">
+            <div class="metric-value" id="failedTests">0</div>
+            <div class="metric-label">失败</div>
+        </div>
+        <div class="metric">
+            <div class="metric-value" id="avgSpeed">0</div>
+            <div class="metric-label">平均速度 (KB/s)</div>
+        </div>
+    </div>
+    
+    <div style="margin: 20px 0; text-align: center;">
+        <button class="btn btn-primary" onclick="runAllTests()">运行所有测试</button>
+        <button class="btn btn-danger" onclick="stopAllTests()">停止测试</button>
+    </div>
+    
+    <div id="tests"></div>
+    
+    <script>
+        // 测试配置
+        const tests = [
+            {
+                id: 'small-file',
+                name: '小文件传输测试 (100KB)',
+                description: '测试小文件的传输稳定性',
+                fileSize: 100 * 1024,
+                chunkSize: 4 * 1024
+            },
+            {
+                id: 'medium-file',
+                name: '中等文件传输测试 (1MB)',
+                description: '测试中等大小文件的传输稳定性',
+                fileSize: 1024 * 1024,
+                chunkSize: 4 * 1024
+            },
+            {
+                id: 'large-file',
+                name: '大文件传输测试 (10MB)',
+                description: '测试大文件的传输稳定性和内存使用',
+                fileSize: 10 * 1024 * 1024,
+                chunkSize: 4 * 1024
+            },
+            {
+                id: 'stress-test',
+                name: '压力测试 (连续发送)',
+                description: '测试连续发送多个块的稳定性',
+                fileSize: 500 * 1024,
+                chunkSize: 1024,
+                continuous: true
+            },
+            {
+                id: 'buffer-test',
+                name: '缓冲区管理测试',
+                description: '测试缓冲区满时的处理',
+                fileSize: 2 * 1024 * 1024,
+                chunkSize: 16 * 1024,
+                noDelay: true
+            }
+        ];
+        
+        let activeTests = new Map();
+        let testResults = {
+            total: 0,
+            passed: 0,
+            failed: 0,
+            speeds: []
+        };
+        
+        // 初始化测试UI
+        function initTests() {
+            const container = document.getElementById('tests');
+            tests.forEach(test => {
+                const testDiv = document.createElement('div');
+                testDiv.className = 'test-container';
+                testDiv.innerHTML = `
+                    <div class="test-header">
+                        <div>
+                            <h3>${test.name}</h3>
+                            <p style="color: #6b7280; margin: 5px 0;">${test.description}</p>
+                        </div>
+                        <div>
+                            <span class="test-status status-pending" id="status-${test.id}">待测试</span>
+                            <button class="btn btn-primary" onclick="runSingleTest('${test.id}')" style="margin-left: 10px;">
+                                运行测试
+                            </button>
+                        </div>
+                    </div>
+                    <div class="test-output" id="output-${test.id}" style="display: none;"></div>
+                `;
+                container.appendChild(testDiv);
+            });
+        }
+        
+        // 模拟WebRTC数据通道
+        class MockDataChannel {
+            constructor(test) {
+                this.test = test;
+                this.readyState = 'open';
+                this.bufferedAmount = 0;
+                this.bufferedAmountLowThreshold = 16384;
+                this.onbufferedamountlow = null;
+                this.closed = false;
+                this.sentBytes = 0;
+                this.startTime = Date.now();
+                
+                // 模拟缓冲区处理
+                this.processBuffer();
+            }
+            
+            send(data) {
+                if (this.closed || this.readyState !== 'open') {
+                    throw new Error('Data channel is closed');
+                }
+                
+                // 模拟随机连接问题
+                if (Math.random() < 0.01) { // 1% 概率出现问题
+                    this.readyState = 'closing';
+                    setTimeout(() => {
+                        if (!this.closed) {
+                            this.readyState = 'open';
+                        }
+                    }, 100);
+                    throw new Error('Connection temporarily unstable');
+                }
+                
+                this.bufferedAmount += data.byteLength;
+                this.sentBytes += data.byteLength;
+            }
+            
+            processBuffer() {
+                if (this.closed) return;
+                
+                // 模拟缓冲区消耗
+                if (this.bufferedAmount > 0) {
+                    const consumed = Math.min(this.bufferedAmount, 32 * 1024);
+                    this.bufferedAmount -= consumed;
+                    
+                    if (this.bufferedAmount < this.bufferedAmountLowThreshold && this.onbufferedamountlow) {
+                        this.onbufferedamountlow();
+                    }
+                }
+                
+                setTimeout(() => this.processBuffer(), 10);
+            }
+            
+            close() {
+                this.closed = true;
+                this.readyState = 'closed';
+            }
+            
+            getSpeed() {
+                const duration = (Date.now() - this.startTime) / 1000;
+                return this.sentBytes / duration / 1024; // KB/s
+            }
+        }
+        
+        // 运行单个测试
+        async function runSingleTest(testId) {
+            const test = tests.find(t => t.id === testId);
+            if (!test) return;
+            
+            const statusEl = document.getElementById(`status-${testId}`);
+            const outputEl = document.getElementById(`output-${testId}`);
+            
+            statusEl.className = 'test-status status-running';
+            statusEl.textContent = '运行中...';
+            outputEl.style.display = 'block';
+            outputEl.textContent = '开始测试...\n';
+            
+            const log = (msg) => {
+                outputEl.textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+                outputEl.scrollTop = outputEl.scrollHeight;
+            };
+            
+            try {
+                // 创建模拟数据通道
+                const dataChannel = new MockDataChannel(test);
+                activeTests.set(testId, dataChannel);
+                
+                // 模拟文件数据
+                const totalChunks = Math.ceil(test.fileSize / test.chunkSize);
+                let sentChunks = 0;
+                let retries = 0;
+                
+                log(`文件大小: ${(test.fileSize / 1024).toFixed(1)} KB`);
+                log(`块大小: ${test.chunkSize} bytes`);
+                log(`总块数: ${totalChunks}`);
+                
+                // 发送数据
+                for (let i = 0; i < totalChunks && dataChannel.readyState !== 'closed'; i++) {
+                    const chunk = new Uint8Array(test.chunkSize);
+                    
+                    // 带重试的发送
+                    let sent = false;
+                    let attempts = 0;
+                    while (!sent && attempts < 5) {
+                        try {
+                            // 等待缓冲区
+                            while (dataChannel.bufferedAmount > 16384) {
+                                await new Promise(resolve => setTimeout(resolve, 10));
+                            }
+                            
+                            dataChannel.send(chunk);
+                            sentChunks++;
+                            sent = true;
+                            
+                            if (attempts > 0) {
+                                log(`块 ${i} 在 ${attempts + 1} 次尝试后发送成功`);
+                            }
+                        } catch (error) {
+                            attempts++;
+                            retries++;
+                            if (attempts >= 5) {
+                                throw new Error(`发送失败: ${error.message}`);
+                            }
+                            await new Promise(resolve => setTimeout(resolve, 100 * attempts));
+                        }
+                    }
+                    
+                    // 进度更新
+                    if (sentChunks % 50 === 0 || sentChunks === totalChunks) {
+                        const progress = (sentChunks / totalChunks * 100).toFixed(1);
+                        const speed = dataChannel.getSpeed();
+                        log(`进度: ${progress}% | 速度: ${speed.toFixed(1)} KB/s`);
+                    }
+                    
+                    // 添加延迟（除非是无延迟测试）
+                    if (!test.noDelay) {
+                        await new Promise(resolve => setTimeout(resolve, test.continuous ? 1 : 20));
+                    }
+                }
+                
+                // 测试完成
+                const finalSpeed = dataChannel.getSpeed();
+                testResults.speeds.push(finalSpeed);
+                
+                log(`\n测试完成!`);
+                log(`总发送: ${(dataChannel.sentBytes / 1024).toFixed(1)} KB`);
+                log(`平均速度: ${finalSpeed.toFixed(1)} KB/s`);
+                log(`重试次数: ${retries}`);
+                log(`成功率: ${((1 - retries / totalChunks) * 100).toFixed(1)}%`);
+                
+                statusEl.className = 'test-status status-passed';
+                statusEl.textContent = '通过';
+                testResults.passed++;
+                
+                dataChannel.close();
+            } catch (error) {
+                log(`\n错误: ${error.message}`);
+                statusEl.className = 'test-status status-failed';
+                statusEl.textContent = '失败';
+                testResults.failed++;
+            } finally {
+                activeTests.delete(testId);
+                testResults.total++;
+                updateSummary();
+            }
+        }
+        
+        // 运行所有测试
+        async function runAllTests() {
+            testResults = { total: 0, passed: 0, failed: 0, speeds: [] };
+            
+            for (const test of tests) {
+                if (activeTests.size > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                await runSingleTest(test.id);
+            }
+        }
+        
+        // 停止所有测试
+        function stopAllTests() {
+            activeTests.forEach(channel => channel.close());
+            activeTests.clear();
+        }
+        
+        // 更新统计信息
+        function updateSummary() {
+            document.getElementById('totalTests').textContent = testResults.total;
+            document.getElementById('passedTests').textContent = testResults.passed;
+            document.getElementById('failedTests').textContent = testResults.failed;
+            
+            if (testResults.speeds.length > 0) {
+                const avgSpeed = testResults.speeds.reduce((a, b) => a + b, 0) / testResults.speeds.length;
+                document.getElementById('avgSpeed').textContent = avgSpeed.toFixed(1);
+            }
+        }
+        
+        // 初始化
+        initTests();
+    </script>
+</body>
+</html>

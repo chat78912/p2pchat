@@ -660,12 +660,15 @@ class BaseChatMode {
         if (createOffer) {
             const dataChannel = pc.createDataChannel('chat', {
                 ordered: true,
-                maxRetransmits: 10 // 最多重传10次，确保可靠性
+                maxRetransmits: 30, // 增加重传次数
+                protocol: 'binary',
+                negotiated: false,
+                id: 0
             });
             // 设置二进制类型
             dataChannel.binaryType = 'arraybuffer';
-            // 增加缓冲区阈值
-            dataChannel.bufferedAmountLowThreshold = 65536; // 64KB
+            // 减少缓冲区阈值，更频繁地触发缓冲区低事件
+            dataChannel.bufferedAmountLowThreshold = 16384; // 16KB
             peerData.dataChannel = dataChannel;
             this.setupDataChannel(dataChannel, peerId);
         }
@@ -2704,6 +2707,10 @@ class BaseChatMode {
             if (!peerData || !peerData.dataChannel || peerData.dataChannel.readyState !== 'open') {
                 throw new Error('没有可用的连接');
             }
+            
+            // 添加额外的延迟，确保接收方准备就绪
+            console.log('等待接收方准备就绪...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
             // 显示发送进度
             this.showFileProgress(fileId, file.name, 0, file.size, true, this.currentUserInfo);

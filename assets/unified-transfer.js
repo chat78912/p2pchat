@@ -12,11 +12,12 @@
 class UnifiedTransfer {
     constructor() {
         this.config = {
-            chunkSize: 8 * 1024,         // 8KB - 更保守的块大小
-            maxBuffered: 32 * 1024,      // 32KB 缓冲限制，减少压力
+            chunkSize: 4 * 1024,         // 4KB - 更小的块大小以提高稳定性
+            maxBuffered: 16 * 1024,      // 16KB 缓冲限制，进一步减少压力
             secretKey: this.generateKey(), // 简单的加密密钥
-            sendDelay: 5,                // 5ms 发送延迟
-            maxRetries: 3,               // 最大重试次数
+            sendDelay: 20,               // 20ms 发送延迟，给接收方更多处理时间
+            maxRetries: 5,               // 增加重试次数
+            heartbeatInterval: 2000,     // 2秒心跳检查
         };
         
         this.activeSenders = new Map();
@@ -47,6 +48,39 @@ class UnifiedTransfer {
             result[i] = data[i] ^ key[i % key.length];
         }
         return result;
+    }
+    
+    /**
+     * 检查连接健康状态
+     */
+    async checkConnectionHealth(dataChannel) {
+        if (!dataChannel || dataChannel.readyState !== 'open') {
+            console.error('Data channel not open:', dataChannel?.readyState);
+            return false;
+        }
+        
+        // 检查缓冲区是否过载
+        if (dataChannel.bufferedAmount > this.config.maxBuffered) {
+            console.warn('Data channel buffer overloaded:', dataChannel.bufferedAmount);
+            // 等待缓冲区清空
+            try {
+                await this.waitForBuffer(dataChannel);
+            } catch (error) {
+                console.error('Failed to clear buffer:', error);
+                return false;
+            }
+        }
+        
+        // 发送一个小的心跳包测试连接
+        try {
+            const heartbeat = this.createPacket(99, 'heartbeat', 0, new Uint8Array([1,2,3,4]));
+            dataChannel.send(heartbeat);
+            console.log('Connection health check passed');
+            return true;
+        } catch (error) {
+            console.error('Connection health check failed:', error);
+            return false;
+        }
     }
     
     /**
@@ -139,6 +173,13 @@ class UnifiedTransfer {
     async startSending(file, fileId, dataChannel, onProgress, onComplete, onError) {
         console.log(`📤 Starting unified transfer: ${file.name} (${this.formatBytes(file.size)})`);
         
+        // 先进行连接健康检查
+        if (!await this.checkConnectionHealth(dataChannel)) {
+            console.error('Connection health check failed');
+            onError(new Error('Connection not healthy'));
+            return;
+        }
+        
         const sender = {
             file,
             fileId,
@@ -148,6 +189,7 @@ class UnifiedTransfer {
             chunkIndex: 0,
             isActive: true,
             startTime: Date.now(),
+            lastHealthCheck: Date.now(),
             onProgress,
             onComplete,
             onError
@@ -179,6 +221,14 @@ class UnifiedTransfer {
             while (sender.isActive) {
                 const { done, value } = await reader.read();
                 if (done) break;
+                
+                // 定期健康检查
+                if (Date.now() - sender.lastHealthCheck > this.config.heartbeatInterval) {
+                    if (!await this.checkConnectionHealth(sender.dataChannel)) {
+                        throw new Error('Connection health check failed');
+                    }
+                    sender.lastHealthCheck = Date.now();
+                }
                 
                 // 带重试的发送
                 let sent = false;
@@ -390,6 +440,9 @@ class UnifiedTransfer {
             
             if (packet.type === 1) { // file chunk
                 await this.handleFileChunk(packet);
+            } else if (packet.type === 99) { // heartbeat
+                // 心跳包，仅用于测试连接，不需要处理
+                console.debug('Received heartbeat packet');
             }
             
         } catch (error) {
