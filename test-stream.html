@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流式传输测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .test-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .feature-list li {
+            padding: 10px;
+            margin: 5px 0;
+            background: #f0f4ff;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .feature-list li:before {
+            content: '✅';
+            margin-right: 10px;
+        }
+        
+        .test-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 0;
+            transition: transform 0.2s;
+        }
+        
+        .test-button:hover {
+            transform: translateY(-2px);
+        }
+        
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 P2P 聊天流式传输测试</h1>
+    
+    <div class="test-card">
+        <h2>新功能特性</h2>
+        <ul class="feature-list">
+            <li>真正的流式传输，不占用内存</li>
+            <li>支持 File System Access API（Chrome/Edge）</li>
+            <li>支持 StreamSaver.js 作为后备方案</li>
+            <li>使用二进制传输，效率提升 33%</li>
+            <li>动态背压控制，防止缓冲区溢出</li>
+            <li>实时进度和速度显示</li>
+            <li>支持大文件传输（理论上无限制）</li>
+        </ul>
+    </div>
+    
+    <div class="test-card">
+        <h2>技术实现</h2>
+        <div class="code-block">
+// 使用原生 Streams API
+const stream = file.stream();
+const reader = stream.getReader();
+
+// 二进制消息格式
+dataChannel.binaryType = 'arraybuffer';
+
+// File System Access API
+const handle = await window.showSaveFilePicker();
+const writableStream = await handle.createWritable();
+        </div>
+    </div>
+    
+    <div class="test-card">
+        <h2>测试说明</h2>
+        <p>1. 打开主聊天页面进行测试</p>
+        <p>2. 尝试发送大文件（如视频文件）</p>
+        <p>3. 观察内存使用情况（开发者工具 - Performance Monitor）</p>
+        <p>4. 注意进度条显示的传输速度</p>
+        
+        <button class="test-button" onclick="window.location.href='index.html'">
+            打开聊天页面
+        </button>
+    </div>
+    
+    <div class="warning">
+        <strong>⚠️ 浏览器兼容性：</strong>
+        <ul>
+            <li>File System Access API: Chrome 86+, Edge 86+</li>
+            <li>File.stream(): Chrome 76+, Firefox 62+, Safari 14.1+</li>
+            <li>其他浏览器将使用 StreamSaver.js 或回退到内存模式</li>
+        </ul>
+    </div>
+    
+    <div class="test-card">
+        <h2>性能对比</h2>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr style="background: #f0f4ff;">
+                <th style="padding: 10px; text-align: left;">指标</th>
+                <th style="padding: 10px; text-align: left;">原实现</th>
+                <th style="padding: 10px; text-align: left;">流式实现</th>
+            </tr>
+            <tr>
+                <td style="padding: 10px; border-top: 1px solid #e0e0e0;">内存占用</td>
+                <td style="padding: 10px; border-top: 1px solid #e0e0e0;">文件大小 × 1.33</td>
+                <td style="padding: 10px; border-top: 1px solid #e0e0e0;">~16KB（固定）</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px; border-top: 1px solid #e0e0e0;">传输效率</td>
+                <td style="padding: 10px; border-top: 1px solid #e0e0e0;">Base64 编码</td>
+                <td style="padding: 10px; border-top: 1px solid #e0e0e0;">二进制直传</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px; border-top: 1px solid #e0e0e0;">最大文件</td>
+                <td style="padding: 10px; border-top: 1px solid #e0e0e0;">~2GB（受内存限制）</td>
+                <td style="padding: 10px; border-top: 1px solid #e0e0e0;">理论无限制</td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

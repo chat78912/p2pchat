@@ -341,8 +341,28 @@ class BaseChatMode {
         this.currentUserId = null;
         this.currentUserInfo = null;
         this.roomUsers = new Map();
+        
+        // 流式传输管理
+        this.streamSenders = new Map();
+        this.streamReceivers = new Map();
+        
+        // 加载流处理器
+        this.loadStreamHandler();
     }
 
+    // 加载流处理器
+    async loadStreamHandler() {
+        if (!window.streamHandler) {
+            const script = document.createElement('script');
+            script.src = 'assets/stream-handler.js';
+            document.head.appendChild(script);
+            
+            return new Promise((resolve) => {
+                script.onload = resolve;
+            });
+        }
+    }
+    
     // 共享的DOM元素初始化
     initializeSharedElements() {
         return {
@@ -641,6 +661,8 @@ class BaseChatMode {
             const dataChannel = pc.createDataChannel('chat', {
                 ordered: true
             });
+            // 设置二进制类型
+            dataChannel.binaryType = 'arraybuffer';
             peerData.dataChannel = dataChannel;
             this.setupDataChannel(dataChannel, peerId);
         }
@@ -659,6 +681,8 @@ class BaseChatMode {
         pc.ondatachannel = (event) => {
             console.log(`Received data channel from ${this.formatUserId(peerId)}`);
             peerData.dataChannel = event.channel;
+            // 设置二进制类型
+            event.channel.binaryType = 'arraybuffer';
             this.setupDataChannel(event.channel, peerId);
         };
         
@@ -688,7 +712,19 @@ class BaseChatMode {
         };
         
         dataChannel.onmessage = (event) => {
-            const message = JSON.parse(event.data);
+            // 检查是否为二进制消息
+            if (event.data instanceof ArrayBuffer && window.streamHandler) {
+                const message = window.streamHandler.decodeMessage(event.data);
+                
+                // 处理流式数据块
+                if (message.type === 'stream-chunk') {
+                    this.handleStreamChunk(message, peerId);
+                    return;
+                }
+            }
+            
+            // 处理文本消息
+            const message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
             
             // 处理不同类型的消息
             switch (message.type) {
@@ -1575,8 +1611,13 @@ class BaseChatMode {
             offerElement.remove();
         }
         
-        // 开始流式发送文件
-        this.startFileSending(file, response.fileId, peerId);
+        // 使用流式处理器发送文件
+        if (window.streamHandler) {
+            this.startStreamFileSending(file, response.fileId, peerId);
+        } else {
+            // 回退到原有方式
+            this.startFileSending(file, response.fileId, peerId);
+        }
     }
     
     handleFileReject(response, peerId) {
@@ -2103,6 +2144,37 @@ class BaseChatMode {
     
     // 取消文件接收
     cancelFileReceiving(fileId) {
+        // 检查流式接收器
+        const streamReceiver = this.streamReceivers?.get(fileId);
+        if (streamReceiver) {
+            // 取消流式接收
+            if (streamReceiver.cancel) {
+                streamReceiver.cancel();
+            }
+            
+            // 从接收队列中移除
+            this.streamReceivers.delete(fileId);
+            
+            // 移除进度条UI
+            this.removeFileProgress(fileId);
+            
+            // 发送取消通知给发送方
+            this.peerConnections.forEach((peerData) => {
+                if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                    peerData.dataChannel.send(JSON.stringify({
+                        type: 'file-cancel-receive',
+                        fileId: fileId,
+                        userId: this.currentUserId
+                    }));
+                }
+            });
+            
+            const fileName = streamReceiver.fileMetadata?.fileName || streamReceiver.offer?.fileName || '文件';
+            this.showNotification(`❌ 已取消接收: ${fileName}`);
+            return;
+        }
+        
+        // 原有逻辑处理非流式接收
         const receiver = this.fileReceivers?.get(fileId);
         if (receiver) {
             // 清理接收器
@@ -2128,6 +2200,38 @@ class BaseChatMode {
     
     // 取消文件发送
     cancelFileSending(fileId) {
+        // 检查流式发送器
+        const streamSender = this.streamSenders?.get(fileId);
+        if (streamSender) {
+            // 停止流式发送
+            streamSender.isPaused = true;
+            streamSender.isComplete = true;
+            
+            // 从发送队列中移除
+            this.streamSenders.delete(fileId);
+            
+            // 从待发送文件中移除
+            this.pendingFiles?.delete(fileId);
+            
+            // 移除进度条UI
+            this.removeFileProgress(fileId);
+            
+            // 发送取消通知给接收方
+            this.peerConnections.forEach((peerData) => {
+                if (peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+                    peerData.dataChannel.send(JSON.stringify({
+                        type: 'file-cancel',
+                        fileId: fileId,
+                        userId: this.currentUserId
+                    }));
+                }
+            });
+            
+            this.showNotification(`❌ 已取消发送: ${streamSender.file.name}`);
+            return;
+        }
+        
+        // 原有逻辑处理非流式发送
         const sender = this.fileSenders?.get(fileId);
         if (sender) {
             // 停止发送
@@ -2185,6 +2289,188 @@ class BaseChatMode {
         this.closePeerConnections();
         this.roomUsers.clear();
         this.currentRoomId = null;
+    }
+    
+    // 流式传输方法
+    startStreamFileSending(file, fileId, peerId) {
+        if (!window.streamHandler) {
+            console.error('Stream handler not loaded');
+            this.startFileSending(file, fileId, peerId);
+            return;
+        }
+        
+        const peerData = this.peerConnections.get(peerId);
+        if (!peerData || !peerData.dataChannel || peerData.dataChannel.readyState !== 'open') {
+            console.error('Data channel not ready');
+            return;
+        }
+        
+        // 先发送元数据
+        const metadata = {
+            type: 'file-metadata',
+            fileId: fileId,
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            userId: this.currentUserId,
+            userInfo: this.currentUserInfo,
+            timestamp: Date.now(),
+            isStreaming: true
+        };
+        
+        peerData.dataChannel.send(JSON.stringify(metadata));
+        
+        // 显示发送进度
+        this.showFileSendProgress(fileId, file.name, 0, file.size);
+        
+        // 创建流式发送器
+        const sender = window.streamHandler.createStreamSender(
+            file,
+            fileId,
+            peerData.dataChannel,
+            // 进度回调
+            (progress, speed) => {
+                this.updateSendingProgress(fileId, progress, speed);
+            },
+            // 完成回调
+            () => {
+                this.streamSenders.delete(fileId);
+                this.fileSendingComplete(fileId);
+            },
+            // 错误回调
+            (error) => {
+                console.error('Stream sending error:', error);
+                this.streamSenders.delete(fileId);
+                this.showNotification(`❌ 文件发送失败: ${file.name}`);
+                this.removeFileProgress(fileId);
+            }
+        );
+        
+        this.streamSenders.set(fileId, sender);
+    }
+    
+    handleStreamChunk(chunkData, peerId) {
+        const receiver = this.streamReceivers.get(chunkData.fileId);
+        
+        if (!receiver) {
+            console.error('No receiver for stream chunk:', chunkData.fileId);
+            return;
+        }
+        
+        // 处理数据块
+        receiver.handleChunk(chunkData);
+    }
+    
+    acceptFileOffer(offer, peerId) {
+        // 使用流式接收器
+        if (window.streamHandler) {
+            this.startStreamReceiving(offer, peerId);
+        } else {
+            // 回退到原有方式
+            this.startStreamDownload(offer, peerId);
+        }
+        
+        // 发送接受响应
+        const response = {
+            type: 'file-accept',
+            fileId: offer.fileId,
+            userId: this.currentUserId
+        };
+        
+        const peerData = this.peerConnections.get(peerId);
+        if (peerData && peerData.dataChannel && peerData.dataChannel.readyState === 'open') {
+            peerData.dataChannel.send(JSON.stringify(response));
+        }
+        
+        // 移除offer UI
+        const offerElement = document.getElementById(`file-offer-${offer.fileId}`);
+        if (offerElement) {
+            offerElement.remove();
+        }
+    }
+    
+    async startStreamReceiving(offer, peerId) {
+        if (!window.streamHandler) {
+            console.error('Stream handler not loaded');
+            this.startStreamDownload(offer, peerId);
+            return;
+        }
+        
+        // 显示接收进度
+        this.showFileProgress(offer.fileId, offer.fileName, 0, offer.fileSize, false, offer.userInfo);
+        
+        // 创建流式接收器
+        const receiver = await window.streamHandler.createStreamReceiver(
+            offer,
+            // 进度回调
+            (progress, speed) => {
+                this.updateFileProgress(offer.fileId, progress, speed);
+            },
+            // 完成回调
+            () => {
+                this.streamReceivers.delete(offer.fileId);
+                this.removeFileProgress(offer.fileId);
+                this.showNotification(`✅ 文件接收完成: ${offer.fileName}`);
+                
+                // 显示文件记录
+                this.displayFileRecord({
+                    ...offer,
+                    isReceived: true
+                }, false);
+            },
+            // 错误回调
+            (error) => {
+                console.error('Stream receiving error:', error);
+                this.streamReceivers.delete(offer.fileId);
+                this.removeFileProgress(offer.fileId);
+                if (error.name !== 'AbortError') {
+                    this.showNotification(`❌ 文件接收失败: ${offer.fileName}`);
+                }
+            }
+        );
+        
+        if (receiver) {
+            this.streamReceivers.set(offer.fileId, receiver);
+        }
+    }
+    
+    // 处理元数据消息以支持流式传输
+    handleFileMetadata(metadata, peerId) {
+        // 如果是流式传输
+        if (metadata.isStreaming && window.streamHandler) {
+            // 检查是否已有接收器
+            let receiver = this.streamReceivers.get(metadata.fileId);
+            
+            if (!receiver) {
+                // 自动创建接收器
+                this.startStreamReceiving(metadata, peerId);
+            }
+            return;
+        }
+        
+        // 原有逻辑
+        let receiver = this.fileReceivers.get(metadata.fileId);
+        
+        if (!receiver) {
+            receiver = {
+                metadata: metadata,
+                chunks: new Array(metadata.totalChunks),
+                receivedChunks: 0,
+                progressElement: null,
+                startTime: Date.now(),
+                lastUpdateTime: Date.now(),
+                lastReceivedBytes: 0
+            };
+            this.fileReceivers.set(metadata.fileId, receiver);
+        } else {
+            receiver.metadata = metadata;
+            if (!receiver.isStreaming) {
+                receiver.chunks = new Array(metadata.totalChunks);
+            }
+        }
+        
+        this.showFileProgress(metadata.fileId, metadata.fileName, 0, metadata.fileSize, false, metadata.userInfo);
+        console.log(`开始接收文件: ${metadata.fileName} (${metadata.totalChunks} 块)`);
     }
 
     // 抽象方法，子类需要实现
