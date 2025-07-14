@@ -660,8 +660,7 @@ class BaseChatMode {
         if (createOffer) {
             const dataChannel = pc.createDataChannel('chat', {
                 ordered: true,
-                maxPacketLifeTime: 30000, // 30秒超时
-                maxRetransmits: 10 // 最多重传10次
+                maxRetransmits: 10 // 最多重传10次，确保可靠性
             });
             // 设置二进制类型
             dataChannel.binaryType = 'arraybuffer';
