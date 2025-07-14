@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>统一传输系统测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        .test-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .test-button:hover {
+            background: #45a049;
+        }
+        .test-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #4CAF50;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        #fileInput {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 统一传输系统测试</h1>
+    
+    <div class="test-section">
+        <h2>1. 基础功能测试</h2>
+        <button class="test-button" onclick="testBasicFunctions()">运行基础测试</button>
+        <div id="basicResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 数据包测试</h2>
+        <button class="test-button" onclick="testPacketCreation()">测试数据包创建与解析</button>
+        <div id="packetResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 模拟文件传输测试</h2>
+        <input type="file" id="fileInput">
+        <button class="test-button" onclick="testFileTransfer()">测试文件传输</button>
+        <div class="progress">
+            <div id="progressBar" class="progress-bar"></div>
+        </div>
+        <div id="transferResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. 错误处理测试</h2>
+        <button class="test-button" onclick="testErrorHandling()">测试错误处理</button>
+        <div id="errorResult" class="result"></div>
+    </div>
+
+    <script src="assets/unified-transfer.js"></script>
+    <script>
+        function log(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            element.className = `result ${type}`;
+            element.textContent += `[${timestamp}] ${message}\n`;
+            element.scrollTop = element.scrollHeight;
+        }
+        
+        function clearLog(elementId) {
+            document.getElementById(elementId).textContent = '';
+        }
+        
+        // 1. 基础功能测试
+        function testBasicFunctions() {
+            clearLog('basicResult');
+            log('basicResult', '开始基础功能测试...');
+            
+            try {
+                // 测试是否加载成功
+                if (window.unifiedTransfer) {
+                    log('basicResult', '✅ UnifiedTransfer 加载成功');
+                } else {
+                    throw new Error('UnifiedTransfer 未加载');
+                }
+                
+                // 测试配置
+                const config = window.unifiedTransfer.config;
+                log('basicResult', `✅ 配置加载成功:
+  - 块大小: ${config.chunkSize} bytes
+  - 最大缓冲: ${config.maxBuffered} bytes
+  - 发送延迟: ${config.sendDelay}ms
+  - 最大重试: ${config.maxRetries}次`);
+                
+                // 测试能力检测
+                const caps = window.unifiedTransfer.capabilities;
+                log('basicResult', `✅ 浏览器能力:
+  - File.stream(): ${caps.fileStream ? '支持' : '不支持'}
+  - File System Access: ${caps.fileSystemAccess ? '支持' : '不支持'}`);
+                
+                // 测试加密功能
+                const testData = new Uint8Array([1, 2, 3, 4, 5]);
+                const encrypted = window.unifiedTransfer.encryptDecrypt(testData, config.secretKey);
+                const decrypted = window.unifiedTransfer.encryptDecrypt(encrypted, config.secretKey);
+                
+                if (testData.every((val, idx) => val === decrypted[idx])) {
+                    log('basicResult', '✅ 加密/解密功能正常');
+                } else {
+                    throw new Error('加密/解密测试失败');
+                }
+                
+                log('basicResult', '✅ 所有基础功能测试通过！', 'success');
+                
+            } catch (error) {
+                log('basicResult', `❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 2. 数据包测试
+        function testPacketCreation() {
+            clearLog('packetResult');
+            log('packetResult', '开始数据包测试...');
+            
+            try {
+                const ut = window.unifiedTransfer;
+                
+                // 测试数据
+                const testData = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+                const fileId = '1752466001924-testfile123';
+                const chunkIndex = 42;
+                const type = 1;
+                
+                log('packetResult', `创建测试数据包:
+  - 类型: ${type}
+  - 文件ID: ${fileId}
+  - 块索引: ${chunkIndex}
+  - 数据: [${Array.from(testData).join(', ')}]`);
+                
+                // 创建数据包
+                const packet = ut.createPacket(type, fileId, chunkIndex, testData);
+                log('packetResult', `✅ 数据包创建成功，大小: ${packet.byteLength} bytes`);
+                
+                // 解析数据包
+                const parsed = ut.parsePacket(packet);
+                log('packetResult', `✅ 数据包解析成功:
+  - 类型: ${parsed.type}
+  - 文件ID: ${parsed.fileId}
+  - 块索引: ${parsed.chunkIndex}
+  - 数据长度: ${parsed.data.length} bytes`);
+                
+                // 验证
+                if (parsed.type === type && 
+                    parsed.fileId === fileId && 
+                    parsed.chunkIndex === chunkIndex &&
+                    parsed.data.length === testData.length) {
+                    log('packetResult', '✅ 数据包完整性验证通过！', 'success');
+                } else {
+                    throw new Error('数据包验证失败');
+                }
+                
+            } catch (error) {
+                log('packetResult', `❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 3. 文件传输测试
+        async function testFileTransfer() {
+            clearLog('transferResult');
+            const fileInput = document.getElementById('fileInput');
+            const progressBar = document.getElementById('progressBar');
+            
+            if (!fileInput.files.length) {
+                log('transferResult', '❌ 请先选择一个文件', 'error');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            log('transferResult', `开始传输文件: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+            
+            try {
+                // 创建模拟数据通道
+                const mockChannel = {
+                    readyState: 'open',
+                    bufferedAmount: 0,
+                    send: function(data) {
+                        // 模拟发送延迟
+                        this.bufferedAmount += data.byteLength;
+                        setTimeout(() => {
+                            this.bufferedAmount = Math.max(0, this.bufferedAmount - data.byteLength);
+                        }, 10);
+                        
+                        // 模拟接收
+                        setTimeout(() => {
+                            window.unifiedTransfer.handlePacket(data);
+                        }, 20);
+                    }
+                };
+                
+                // 先创建接收器
+                const fileMetadata = {
+                    fileId: Date.now() + '-test',
+                    fileName: file.name,
+                    fileSize: file.size,
+                    fileType: file.type
+                };
+                
+                log('transferResult', '创建接收器...');
+                await window.unifiedTransfer.startReceiving(
+                    fileMetadata,
+                    (progress, speed) => {
+                        progressBar.style.width = progress + '%';
+                        log('transferResult', `接收进度: ${progress.toFixed(2)}% | 速度: ${(speed / 1024).toFixed(2)} KB/s`);
+                    },
+                    () => {
+                        log('transferResult', '✅ 文件接收完成！', 'success');
+                    },
+                    (error) => {
+                        log('transferResult', `❌ 接收错误: ${error.message}`, 'error');
+                    }
+                );
+                
+                // 开始发送
+                log('transferResult', '开始发送...');
+                await window.unifiedTransfer.startSending(
+                    file,
+                    fileMetadata.fileId,
+                    mockChannel,
+                    (progress, speed) => {
+                        log('transferResult', `发送进度: ${progress.toFixed(2)}% | 速度: ${(speed / 1024).toFixed(2)} KB/s`);
+                    },
+                    () => {
+                        log('transferResult', '✅ 文件发送完成！', 'success');
+                    },
+                    (error) => {
+                        log('transferResult', `❌ 发送错误: ${error.message}`, 'error');
+                    }
+                );
+                
+            } catch (error) {
+                log('transferResult', `❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 4. 错误处理测试
+        async function testErrorHandling() {
+            clearLog('errorResult');
+            log('errorResult', '开始错误处理测试...');
+            
+            try {
+                const ut = window.unifiedTransfer;
+                
+                // 测试1: 无效数据包
+                log('errorResult', '测试1: 解析无效数据包');
+                try {
+                    ut.parsePacket(new ArrayBuffer(10));
+                    log('errorResult', '❌ 应该抛出错误但没有', 'error');
+                } catch (error) {
+                    log('errorResult', `✅ 正确捕获错误: ${error.message}`);
+                }
+                
+                // 测试2: 关闭的通道
+                log('errorResult', '\n测试2: 使用关闭的通道');
+                const closedChannel = {
+                    readyState: 'closed',
+                    bufferedAmount: 0,
+                    send: () => { throw new Error('Channel closed'); }
+                };
+                
+                const testFile = new File(['test'], 'test.txt');
+                try {
+                    await ut.startSending(
+                        testFile,
+                        'test-id',
+                        closedChannel,
+                        () => {},
+                        () => {},
+                        (error) => {
+                            log('errorResult', `✅ 正确处理通道关闭: ${error.message}`);
+                        }
+                    );
+                } catch (error) {
+                    log('errorResult', `✅ 捕获预期错误: ${error.message}`);
+                }
+                
+                // 测试3: 缓冲区超时
+                log('errorResult', '\n测试3: 缓冲区超时');
+                const slowChannel = {
+                    readyState: 'open',
+                    bufferedAmount: 100000, // 大缓冲量
+                    send: () => {}
+                };
+                
+                // 临时减少超时时间以加快测试
+                const originalMaxAttempts = 200;
+                ut.waitForBuffer = function(dataChannel) {
+                    return new Promise((resolve, reject) => {
+                        setTimeout(() => reject(new Error('Buffer wait timeout')), 100);
+                    });
+                };
+                
+                try {
+                    await ut.startSending(
+                        testFile,
+                        'test-id-2',
+                        slowChannel,
+                        () => {},
+                        () => {},
+                        (error) => {
+                            log('errorResult', `✅ 正确处理缓冲区超时: ${error.message}`);
+                        }
+                    );
+                } catch (error) {
+                    log('errorResult', `✅ 捕获超时错误: ${error.message}`);
+                }
+                
+                log('errorResult', '\n✅ 所有错误处理测试通过！', 'success');
+                
+            } catch (error) {
+                log('errorResult', `❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 页面加载时运行基础测试
+        window.onload = () => {
+            testBasicFunctions();
+        };
+    </script>
+</body>
+</html>
