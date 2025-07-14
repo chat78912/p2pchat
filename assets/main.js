@@ -352,9 +352,9 @@ class BaseChatMode {
 
     // 加载流处理器
     async loadStreamHandler() {
-        if (!window.highPerformanceStreamHandler) {
+        if (!window.robustStreamHandler) {
             const script = document.createElement('script');
-            script.src = 'assets/high-performance-stream.js';
+            script.src = 'assets/robust-stream.js';
             document.head.appendChild(script);
             
             return new Promise((resolve) => {
@@ -722,7 +722,15 @@ class BaseChatMode {
         dataChannel.onmessage = (event) => {
             // 检查是否为二进制消息
             if (event.data instanceof ArrayBuffer) {
-                if (window.highPerformanceStreamHandler) {
+                if (window.robustStreamHandler) {
+                    const message = window.robustStreamHandler.parseMessage(event.data);
+                    
+                    // 处理鲁棒性流式数据块
+                    if (message.type === 'robust-chunk') {
+                        window.robustStreamHandler.handleRobustChunk(message, peerId);
+                        return;
+                    }
+                } else if (window.highPerformanceStreamHandler) {
                     const message = window.highPerformanceStreamHandler.parseBinaryMessage(event.data);
                     
                     // 处理高性能流式数据块
@@ -1650,8 +1658,10 @@ class BaseChatMode {
             offerElement.remove();
         }
         
-        // 使用高性能流式传输
-        if (window.highPerformanceStreamHandler) {
+        // 使用鲁棒性流式传输
+        if (window.robustStreamHandler) {
+            this.startRobustFileSending(file, response.fileId, peerId);
+        } else if (window.highPerformanceStreamHandler) {
             this.startHighPerformanceFileSending(file, response.fileId, peerId);
         } else {
             // 回退到原有方式
@@ -2336,6 +2346,97 @@ class BaseChatMode {
         this.currentRoomId = null;
     }
     
+    // 鲁棒性流式传输方法
+    async startRobustFileSending(file, fileId, peerId) {
+        const peerData = this.peerConnections.get(peerId);
+        if (!peerData || !peerData.dataChannel || peerData.dataChannel.readyState !== 'open') {
+            console.error('Data channel not ready');
+            return;
+        }
+        
+        // 显示发送进度
+        this.showFileSendProgress(fileId, file.name, 0, file.size);
+        
+        try {
+            await window.robustStreamHandler.createRobustSender(
+                file,
+                fileId,
+                peerData.dataChannel,
+                // 进度回调
+                (progress, speed) => {
+                    this.updateSendingProgress(fileId, progress, speed);
+                },
+                // 完成回调
+                () => {
+                    this.removeFileProgress(fileId);
+                    this.showNotification(`✅ 文件发送完成: ${file.name}`);
+                    
+                    // 显示发送记录
+                    this.displayFileRecord({
+                        fileId: fileId,
+                        fileName: file.name,
+                        fileType: file.type,
+                        fileSize: file.size,
+                        userId: this.currentUserId,
+                        userInfo: this.currentUserInfo,
+                        timestamp: Date.now()
+                    }, true);
+                },
+                // 错误回调
+                (error) => {
+                    console.error('Robust sending error:', error);
+                    this.removeFileProgress(fileId);
+                    this.showNotification(`❌ 文件发送失败: ${file.name}`);
+                }
+            );
+        } catch (error) {
+            console.error('Failed to start robust sending:', error);
+            this.showNotification(`❌ 启动鲁棒性传输失败: ${file.name}`);
+        }
+    }
+    
+    async startRobustFileReceiving(offer, peerId) {
+        // 显示接收进度
+        this.showFileProgress(offer.fileId, offer.fileName, 0, offer.fileSize, false, offer.userInfo);
+        
+        try {
+            await window.robustStreamHandler.createRobustReceiver(
+                {
+                    fileId: offer.fileId,
+                    fileName: offer.fileName,
+                    fileSize: offer.fileSize,
+                    totalChunks: Math.ceil(offer.fileSize / 1024) // 1KB 块
+                },
+                // 进度回调
+                (progress, speed) => {
+                    this.updateFileProgress(offer.fileId, progress, speed);
+                },
+                // 完成回调
+                () => {
+                    this.removeFileProgress(offer.fileId);
+                    this.showNotification(`✅ 文件接收完成: ${offer.fileName}`);
+                    
+                    // 显示接收记录
+                    this.displayFileRecord({
+                        ...offer,
+                        isReceived: true
+                    }, false);
+                },
+                // 错误回调
+                (error) => {
+                    console.error('Robust receiving error:', error);
+                    this.removeFileProgress(offer.fileId);
+                    if (error.name !== 'AbortError') {
+                        this.showNotification(`❌ 文件接收失败: ${offer.fileName}`);
+                    }
+                }
+            );
+        } catch (error) {
+            console.error('Failed to start robust receiving:', error);
+            this.showNotification(`❌ 启动鲁棒性接收失败: ${offer.fileName}`);
+        }
+    }
+    
     // 高性能流式传输方法
     async startHighPerformanceFileSending(file, fileId, peerId) {
         const peerData = this.peerConnections.get(peerId);
@@ -2498,8 +2599,10 @@ class BaseChatMode {
     }
     
     acceptFileOffer(offer, peerId) {
-        // 使用高性能流式接收
-        if (window.highPerformanceStreamHandler) {
+        // 使用鲁棒性流式接收
+        if (window.robustStreamHandler) {
+            this.startRobustFileReceiving(offer, peerId);
+        } else if (window.highPerformanceStreamHandler) {
             this.startHighPerformanceFileReceiving(offer, peerId);
         } else {
             // 回退到原有方式
