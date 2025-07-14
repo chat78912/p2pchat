@@ -49,12 +49,13 @@ class UnifiedTransfer {
     
     /**
      * 创建统一的数据包格式
-     * 格式: [magic(4)] + [type(1)] + [fileId(16)] + [chunkIndex(4)] + [dataLength(4)] + [encryptedData]
+     * 格式: [magic(4)] + [type(1)] + [fileIdLen(1)] + [fileId(variable)] + [chunkIndex(4)] + [dataLength(4)] + [encryptedData]
      */
     createPacket(type, fileId, chunkIndex, data) {
         const magic = new Uint8Array([0xAA, 0xBB, 0xCC, 0xDD]); // 魔数标识
         const typeBytes = new Uint8Array([type]);
-        const fileIdBytes = new TextEncoder().encode(fileId.padEnd(16, '\0')).slice(0, 16);
+        const fileIdBytes = new TextEncoder().encode(fileId);
+        const fileIdLenBytes = new Uint8Array([fileIdBytes.length]);
         const chunkBytes = new Uint8Array(4);
         const lengthBytes = new Uint8Array(4);
         
@@ -69,13 +70,14 @@ class UnifiedTransfer {
         
         // 组合所有部分
         const packet = new Uint8Array(
-            magic.length + typeBytes.length + fileIdBytes.length + 
+            magic.length + typeBytes.length + fileIdLenBytes.length + fileIdBytes.length + 
             chunkBytes.length + lengthBytes.length + encryptedData.length
         );
         
         let offset = 0;
         packet.set(magic, offset); offset += magic.length;
         packet.set(typeBytes, offset); offset += typeBytes.length;
+        packet.set(fileIdLenBytes, offset); offset += fileIdLenBytes.length;
         packet.set(fileIdBytes, offset); offset += fileIdBytes.length;
         packet.set(chunkBytes, offset); offset += chunkBytes.length;
         packet.set(lengthBytes, offset); offset += lengthBytes.length;
@@ -101,10 +103,13 @@ class UnifiedTransfer {
         // 读取类型
         const type = data[offset++];
         
+        // 读取文件ID长度
+        const fileIdLen = data[offset++];
+        
         // 读取文件ID
-        const fileIdBytes = data.slice(offset, offset + 16);
-        const fileId = new TextDecoder().decode(fileIdBytes).replace(/\0+$/, '');
-        offset += 16;
+        const fileIdBytes = data.slice(offset, offset + fileIdLen);
+        const fileId = new TextDecoder().decode(fileIdBytes);
+        offset += fileIdLen;
         
         // 读取chunk index
         const chunkIndex = view.getUint32(offset, true);
