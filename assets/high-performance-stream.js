@@ -7,28 +7,28 @@ class HighPerformanceStreamHandler {
     constructor() {
         // 性能配置
         this.config = {
-            // 动态块大小：局域网使用大块，广域网使用小块
+            // 动态块大小：更保守的设置
             chunkSizes: {
-                lan: 256 * 1024,      // 256KB - 局域网高速传输
-                wan: 16 * 1024,       // 16KB - 广域网稳定传输
+                lan: 64 * 1024,       // 64KB - 局域网稳定传输
+                wan: 8 * 1024,        // 8KB - 广域网稳定传输
                 slow: 4 * 1024        // 4KB - 慢速连接
             },
             
             // 并发配置
-            maxConcurrentChunks: 8,   // 最大并发块数
+            maxConcurrentChunks: 2,   // 降低并发数
             
             // 缓冲配置
             bufferThresholds: {
-                lan: 1024 * 1024,     // 1MB
-                wan: 256 * 1024,      // 256KB
-                slow: 64 * 1024       // 64KB
+                lan: 128 * 1024,      // 128KB
+                wan: 64 * 1024,       // 64KB
+                slow: 32 * 1024       // 32KB
             },
             
             // 延迟配置
             sendDelays: {
-                lan: 1,               // 1ms - 极低延迟
-                wan: 10,              // 10ms
-                slow: 50              // 50ms
+                lan: 20,              // 20ms - 保守延迟
+                wan: 50,              // 50ms
+                slow: 100             // 100ms
             },
             
             // 速度检测
@@ -98,54 +98,9 @@ class HighPerformanceStreamHandler {
      * 注册 Service Worker 用于流式下载
      */
     async registerServiceWorker() {
-        const swCode = `
-            let downloadStreams = new Map();
-            
-            self.addEventListener('message', (event) => {
-                const { type, fileId, fileName, fileSize } = event.data;
-                
-                if (type === 'START_DOWNLOAD') {
-                    // 准备下载流
-                    downloadStreams.set(fileId, {
-                        fileName,
-                        fileSize,
-                        chunks: [],
-                        receivedBytes: 0
-                    });
-                } else if (type === 'CHUNK_DATA') {
-                    const download = downloadStreams.get(fileId);
-                    if (download) {
-                        download.chunks.push(event.data.chunk);
-                        download.receivedBytes += event.data.chunk.byteLength;
-                        
-                        // 如果接收完成，触发下载
-                        if (download.receivedBytes >= download.fileSize) {
-                            const blob = new Blob(download.chunks);
-                            const url = URL.createObjectURL(blob);
-                            
-                            // 通知主线程下载完成
-                            self.postMessage({
-                                type: 'DOWNLOAD_READY',
-                                fileId,
-                                url,
-                                fileName
-                            });
-                            
-                            downloadStreams.delete(fileId);
-                        }
-                    }
-                }
-            });
-        `;
-        
-        const blob = new Blob([swCode], { type: 'application/javascript' });
-        const swUrl = URL.createObjectURL(blob);
-        
-        const registration = await navigator.serviceWorker.register(swUrl);
-        this.serviceWorker = registration.active || registration.waiting || registration.installing;
-        
-        // 清理临时 URL
-        URL.revokeObjectURL(swUrl);
+        // 跳过 Service Worker 注册，直接使用其他方法
+        console.log('Skipping Service Worker registration in this environment');
+        return;
     }
     
     /**
@@ -172,7 +127,6 @@ class HighPerformanceStreamHandler {
             chunkSize: config.chunkSize,
             totalChunks: Math.ceil(file.size / config.chunkSize),
             sentChunks: 0,
-            concurrentChunks: 0,
             isActive: true,
             startTime: Date.now(),
             bytesSent: 0,
@@ -180,11 +134,7 @@ class HighPerformanceStreamHandler {
             // 速度监控
             lastSpeedCheck: Date.now(),
             lastBytesSent: 0,
-            currentSpeed: 0,
-            
-            // 错误重试
-            retryQueue: new Set(),
-            maxRetries: 3
+            currentSpeed: 0
         };
         
         this.activeSenders.set(fileId, sender);
@@ -236,7 +186,6 @@ class HighPerformanceStreamHandler {
                     
                     sender.sentChunks++;
                     sender.bytesSent += chunkData.byteLength;
-                    sender.concurrentChunks--;
                     
                     // 更新进度
                     this.updateSenderProgress(sender, onProgress);
@@ -249,16 +198,9 @@ class HighPerformanceStreamHandler {
                     }
                     
                 } catch (error) {
-                    sender.concurrentChunks--;
-                    
-                    // 重试逻辑
-                    if (sender.retryQueue.size < sender.maxRetries) {
-                        sender.retryQueue.add(chunkIndex);
-                        setTimeout(() => this.retryChunk(sender, chunkIndex, chunkData), 1000);
-                    } else {
-                        sender.isActive = false;
-                        onError(error);
-                    }
+                    // 重试逻辑 - 暂时禁用，直接报错
+                    sender.isActive = false;
+                    onError(error);
                 }
             };
             
@@ -270,17 +212,10 @@ class HighPerformanceStreamHandler {
                 
                 if (done) break;
                 
-                // 控制并发数量
-                while (sender.concurrentChunks >= this.config.maxConcurrentChunks) {
-                    await new Promise(resolve => setTimeout(resolve, 1));
-                }
-                
                 if (!sender.isActive) break;
                 
-                sender.concurrentChunks++;
-                
-                // 异步处理块
-                processChunk(value, chunkIndex++);
+                // 同步处理块，避免并发问题
+                await processChunk(value, chunkIndex++);
                 
                 // 根据连接类型添加延迟
                 if (this.getCurrentConfig().sendDelay > 1) {
